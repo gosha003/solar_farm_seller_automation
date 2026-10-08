@@ -36,14 +36,14 @@ Copy-Item .env.example .env   # затем заполнить
 
 ## Фаза 0: что сделать владельцу
 
-### 1. Claude API
-1. https://console.anthropic.com → **Settings → Limits**: поставить месячный лимит расходов ($20 хватит с запасом).
-2. **API Keys → Create Key** → вставить в `.env` как `ANTHROPIC_API_KEY=...`.
-
-### 2. Telegram-бот
-1. В Telegram написать **@BotFather** → `/newbot` → имя и username бота → получить токен → `.env`: `TELEGRAM_BOT_TOKEN=...`.
-2. Написать своему боту `/start`.
-3. Открыть в браузере `https://api.telegram.org/bot<ТОКЕН>/getUpdates`, найти `"chat":{"id":123456789` → `.env`: `TELEGRAM_CHAT_ID=123456789`.
+### 1-2. Claude API и Telegram-бот
+1. https://console.anthropic.com → **Settings → Limits**: месячный лимит расходов ($20 хватит с запасом) → **API Keys → Create Key**, скопировать.
+2. В Telegram: **@BotFather** → `/newbot` → имя и username бота (должен кончаться на `bot`) → скопировать токен.
+3. Запустить и вставить оба ключа (ввод скрыт, ключи проверяются, chat id определяется сам):
+   ```powershell
+   .venv\Scripts\python -m solar_outreach.set_secrets
+   ```
+   Тот же скрипт для ротации ключей: пустой Enter пропускает шаг.
 
 ### 3. Google Cloud (Gmail, Sheets, Drive)
 1. https://console.cloud.google.com → выбор проекта → **New project** → `solar-bg`.
