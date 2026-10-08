@@ -15,9 +15,11 @@ TABS = {
                 "год", "режим", "телефон", "email", "продавец", "канал", "отбор", "скоринг", "приоритет", *ITEMS,
                 "статус переписки", "последний контакт", "следующий шаг", "примечание"],
     "Диалоги": ["id станции", "направление", "дата", "канал", "язык", "краткое содержание", "тред Gmail"],
+    "Черновики": ["id", "id станции", "дата", "язык", "тип", "канал", "кому", "тема", "текст", "статус",
+                  "tg сообщение", "правка владельца", "нарушения правил"],
     "Ручная очередь": ["id станции", "канал", "ссылка на объявление", "текст", "WhatsApp", "Viber", "статус"],
     "Чёрный список": ["контакт или домен", "причина", "дата"],
-    "Настройки": ["параметр", "значение"],
+    "Настройки": ["параметр", "значение"],  # ключ, значение: формат kv()/set_kv()
     "_state": ["ключ", "значение"],
 }
 
@@ -69,12 +71,46 @@ def create(api, title: str, settings: list[list]) -> str:
     return sid
 
 
+def ensure_tabs(api, sid: str) -> None:
+    """Вкладки, появившиеся в новых фазах, дописываются в уже созданную таблицу."""
+    have = {s["properties"]["title"] for s in api.get(spreadsheetId=sid, fields="sheets.properties.title").execute()["sheets"]}
+    missing = [t for t in TABS if t not in have]
+    if missing:
+        api.batchUpdate(spreadsheetId=sid, body={"requests": [
+            {"addSheet": {"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}}} for t in missing]}).execute()
+        api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "RAW", "data": [
+            {"range": f"'{t}'!A1", "values": [TABS[t]]} for t in missing]}).execute()
+
+
 def read(api, sid: str, tab: str) -> list[dict]:
+    """Строки как dict; `_row` = номер строки в листе (для update)."""
     rows = api.values().get(spreadsheetId=sid, range=f"'{tab}'").execute().get("values", [])
     if not rows:
         return []
     head = rows[0]
-    return [dict(zip(head, r + [""] * (len(head) - len(r)))) for r in rows[1:]]
+    return [{**dict(zip(head, r + [""] * (len(head) - len(r)))), "_row": i} for i, r in enumerate(rows[1:], 2)]
+
+
+def update(api, sid: str, tab: str, rows: list[dict]) -> None:
+    """Перезаписать строки целиком (по `_row`), одним batch-запросом."""
+    head = TABS[tab]
+    data = [{"range": f"'{tab}'!A{r['_row']}", "values": [["" if r.get(h) is None else r.get(h) for h in head]]}
+            for r in rows]
+    if data:
+        api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "USER_ENTERED", "data": data}).execute()
+
+
+def kv(api, sid: str, tab: str) -> dict[str, dict]:
+    """«_state» / «Настройки»: {ключ: строка}. Колонки: первая = ключ, вторая = значение."""
+    return {r[TABS[tab][0]]: r for r in read(api, sid, tab)}
+
+
+def set_kv(api, sid: str, tab: str, values: dict) -> None:
+    key_col, val_col = TABS[tab]
+    existing = kv(api, sid, tab)
+    upd = [{**existing[k], val_col: v} for k, v in values.items() if k in existing]
+    update(api, sid, tab, upd)
+    append(api, sid, tab, [{key_col: k, val_col: v} for k, v in values.items() if k not in existing])
 
 
 def append(api, sid: str, tab: str, rows: list[dict]) -> None:
