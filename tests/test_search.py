@@ -20,6 +20,28 @@ def test_listings_fetches_only_unknown_or_in_range():
     assert out[0].extra == {"title_only": True}
 
 
+def http_error(code):
+    import requests
+    return requests.HTTPError(response=SimpleNamespace(status_code=code))
+
+
+def test_broken_page_skipped_but_429_stops_source():
+    import pytest
+    fake = SimpleNamespace(links=lambda f: {"u/503": "ФЕЦ 1 MW", "u/ok": "ФЕЦ 1.2 MW"},
+                           parse_ad=lambda url, html: Listing("x", url, html))
+
+    def fetch(url):
+        if url == "u/503":
+            raise http_error(503)
+        return "page"
+    assert [l.url for l in search.listings("x", fake, fetch, set(), CFG["criteria"])] == ["u/ok"]
+
+    def limited(url):
+        raise http_error(429)
+    with pytest.raises(Exception):
+        list(search.listings("x", fake, limited, set(), CFG["criteria"]))
+
+
 def test_rows_dedup_by_contact_and_title_but_not_empty_title():
     a = search.to_row(Listing("x", "u1", "ФЕЦ 1.5 MW", "тел 0888123456"), CFG)
     b = search.to_row(Listing("y", "u2", "Друга обява ФЕЦ 1.5 MW", "0888 123 456"), CFG)

@@ -9,6 +9,8 @@ import re
 import sys
 from datetime import date
 
+import requests
+
 from solar_outreach import parse, sheets
 from solar_outreach.config import load_config
 from solar_outreach.contacts import channel
@@ -57,13 +59,21 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
         kw = parse.power_kw(title, "")
         if kw is not None and not crit["soft_min_kwp"] <= kw <= crit["soft_max_kwp"]:
             yield Listing(name, url, title, extra={"title_only": True})
-        elif html := fetch(url):
+            continue
+        try:
+            html = fetch(url)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                raise  # площадка просит остановиться: прекращаем её до следующего запуска
+            continue  # одна битая страница (503, 500) не останавливает площадку
+        if html:
             yield src.parse_ad(url, html)
 
 
 def main(local: bool, use_web: bool = False) -> None:
     cfg = load_config()
-    fetch = Fetcher(cfg["scraping"]["user_agent"], tuple(cfg["scraping"]["delay_sec"]))
+    s = cfg["scraping"]
+    fetch = Fetcher(s["user_agent"], tuple(s["delay_sec"]), s.get("host_delay_sec"))
     api = sid = None
     seen: set = set()
     existing = []
