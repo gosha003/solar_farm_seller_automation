@@ -1,5 +1,8 @@
 """config.yaml + секреты из окружения (локально подхватывается .env)."""
 import os
+import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
@@ -29,6 +32,24 @@ def update_env(values: dict[str, str], path: Path = ROOT / ".env") -> None:
 def dry_run() -> bool:
     """Реальная отправка только при явном DRY_RUN=false. Отсутствие, опечатка, что угодно другое = dry run."""
     return os.environ.get("DRY_RUN", "true").strip().lower() != "false"
+
+
+@contextmanager
+def single_run(name: str, stale_sec: int = 1800):
+    """Блокировка от параллельного запуска (раздел 9). Занято -> SystemExit, запуск просто пропускается.
+    ponytail: lock-файл на одной машине; на GitHub Actions то же даёт concurrency-группа."""
+    lock = Path(tempfile.gettempdir()) / f"solar_outreach_{name}.lock"
+    if lock.exists() and time.time() - lock.stat().st_mtime > stale_sec:
+        lock.unlink(missing_ok=True)  # упавший процесс не держит блокировку вечно
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SystemExit(f"{name}: уже идёт другой запуск, пропускаю")
+    try:
+        yield
+    finally:
+        os.close(fd)
+        lock.unlink(missing_ok=True)
 
 
 def load_config(path: Path = PKG / "config.yaml") -> dict:

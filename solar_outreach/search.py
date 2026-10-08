@@ -12,7 +12,7 @@ from datetime import date
 import requests
 
 from solar_outreach import parse, sheets
-from solar_outreach.config import load_config
+from solar_outreach.config import load_config, single_run
 from solar_outreach.contacts import channel
 from solar_outreach.qualify import qualify
 from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, is_station_sale, kpd, web
@@ -126,4 +126,8 @@ def settings(cfg: dict) -> list[list]:
 
 
 if __name__ == "__main__":
-    main("--local" in sys.argv, "--web" in sys.argv)
+    if "--local" in sys.argv:
+        main(True, "--web" in sys.argv)
+    else:
+        with single_run("sheet", stale_sec=3600):  # поиск и одобрение пишут в одну таблицу: одна блокировка
+            main(False, "--web" in sys.argv)
