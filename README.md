@@ -8,8 +8,8 @@
 
 | Фаза | Что | Статус |
 |---|---|---|
-| 0 | Подготовка: каркас, ключи, OAuth, выбор запуска | в работе |
-| 1 | Поиск, парсинг, дедуп, скоринг, Google Sheet | |
+| 0 | Подготовка: каркас, ключи, OAuth, выбор запуска | готово |
+| 1 | Поиск, парсинг, дедуп, скоринг, Google Sheet | в работе |
 | 2 | Черновики bg/en/ru, одобрение в Telegram (DRY_RUN) | |
 | 3 | Gmail: отправка под одобрение, чтение ответов, эскалации | |
 | 4 | Автоотправка, дожимы, дайджест, bounce-стоп | |
@@ -49,7 +49,7 @@ Copy-Item .env.example .env   # затем заполнить
 1. https://console.cloud.google.com → выбор проекта → **New project** → `solar-bg`.
 2. **APIs & Services → Library**: включить **Gmail API**, **Google Sheets API**, **Google Drive API**.
 3. **Google Auth Platform → Get started**: App name `Solar BG`, support email `owner@example.com`, Audience **External**, contact email тот же → Create.
-4. **Audience → Publish app → In production.** Важно: в режиме Testing refresh token умирает через 7 дней. Проходить проверку Google не нужно, приложение личное: при входе будет экран «Google hasn't verified this app» → **Advanced → Go to Solar BG (unsafe)**.
+4. **Branding**: home page `https://gosha003.github.io/solar-bg-pages/`, privacy `https://gosha003.github.io/solar-bg-pages/privacy.html`, authorized domain `gosha003.github.io` (страницы в публичном репо [solar-bg-pages](https://github.com/gosha003/solar-bg-pages)). Затем **Audience → Publish app → In production.** В режиме Testing refresh token умирает через 7 дней. Проверка Google не нужна, приложение личное: на экране «Google hasn't verified this app» → **Advanced → Go to Solar BG (unsafe)**.
 5. **Clients → Create client → Desktop app** → Create → **Download JSON** → сохранить как `client_secret.json` в корень проекта.
 6. Запустить и войти как `owner@example.com`, разрешить все три доступа:
    ```powershell
@@ -59,6 +59,15 @@ Copy-Item .env.example .env   # затем заполнить
 
 Доступы: `gmail.modify` (без права безвозвратного удаления), `spreadsheets`, `drive.file` (только файлы, созданные самой системой). Ограничение «трогать только треды с меткой `SolarBG`» обеспечивает код, не Google: scope `gmail.modify` технически даёт доступ ко всему ящику.
 
+## Поиск (Фаза 1)
+
+```powershell
+.venv\Scripts\python -m solar_outreach.search           # пишет в Google Sheet (создаёт при первом запуске, ID в .env)
+.venv\Scripts\python -m solar_outreach.search --local   # только печать
+```
+
+Площадки и почему так: см. docstring [sources/__init__.py](solar_outreach/sources/__init__.py). robots.txt проверен вручную, блокировки и капчи не обходятся, скрытые за кнопкой телефоны не раскрываются.
+
 ## Структура
 
 ```
@@ -66,6 +75,12 @@ solar_outreach/
   config.yaml      # критерии, лимиты, режимы
   config.py        # загрузка config.yaml и .env, флаг DRY_RUN
   google_auth.py   # одноразовая OAuth-авторизация
+  set_secrets.py   # ввод ключей Anthropic/Telegram
+  sources/         # bazar.bg, alo.bg, kpd.bg + список недоступных площадок
+  parse.py         # мощность, цена, год, режим, контакты
+  qualify.py       # отбор и скоринг по config.yaml
+  contacts.py      # канал связи
+  sheets.py        # Google Sheets: вкладки, чтение/запись, цвета статусов
+  search.py        # поиск -> дедуп -> вкладка «Станции»
 tests/
 ```
-Остальные модули из раздела 5 ТЗ появляются в своих фазах.
