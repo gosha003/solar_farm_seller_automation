@@ -2,6 +2,7 @@
 
     python -m solar_outreach.search            # пишет в Google Sheet (создаёт при первом запуске)
     python -m solar_outreach.search --local    # только печать, без Sheets
+    python -m solar_outreach.search --web      # плюс веб-поиск через Claude (платно, раз в сутки)
 """
 import os
 import re
@@ -12,7 +13,7 @@ from solar_outreach import parse, sheets
 from solar_outreach.config import load_config
 from solar_outreach.contacts import channel
 from solar_outreach.qualify import qualify
-from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, is_station_sale, kpd
+from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, is_station_sale, kpd, web
 
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
 ORDER = {"A": 0, "B": 1, "C": 2, "-": 3}
@@ -60,7 +61,7 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
             yield src.parse_ad(url, html)
 
 
-def main(local: bool) -> None:
+def main(local: bool, use_web: bool = False) -> None:
     cfg = load_config()
     fetch = Fetcher(cfg["scraping"]["user_agent"], tuple(cfg["scraping"]["delay_sec"]))
     api = sid = None
@@ -74,7 +75,7 @@ def main(local: bool) -> None:
             seen |= keys(r)
 
     new, failed = [], dict(UNAVAILABLE)
-    for name, src in SOURCES.items():
+    for name, src in {**SOURCES, **({"web": web} if use_web else {})}.items():
         try:
             for l in listings(name, src, fetch, {k[1] for k in seen if k[0] == "url"}, cfg["criteria"]):
                 row = to_row(l, cfg)
@@ -115,4 +116,4 @@ def settings(cfg: dict) -> list[list]:
 
 
 if __name__ == "__main__":
-    main("--local" in sys.argv)
+    main("--local" in sys.argv, "--web" in sys.argv)
