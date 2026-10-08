@@ -9,10 +9,20 @@ API = "https://api.telegram.org/bot{token}/{method}"
 LIMIT = 4000  # у Telegram 4096 символов на сообщение
 
 
+class TelegramError(Exception):
+    pass
+
+
 def call(method: str, **params) -> dict | list:
-    r = requests.post(API.format(token=os.environ["TELEGRAM_BOT_TOKEN"], method=method), json=params, timeout=30)
-    r.raise_for_status()
-    return r.json()["result"]
+    """Токен входит в URL, поэтому исключения requests (с URL в тексте) наружу не выпускаем: только метод и описание."""
+    try:
+        r = requests.post(API.format(token=os.environ["TELEGRAM_BOT_TOKEN"], method=method), json=params, timeout=30)
+        data = r.json()
+    except (requests.RequestException, ValueError) as e:
+        raise TelegramError(f"{method}: {type(e).__name__}") from None
+    if not data.get("ok"):
+        raise TelegramError(f"{method}: {r.status_code} {data.get('description', '')}")
+    return data["result"]
 
 
 def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> int:
@@ -36,7 +46,12 @@ def updates(offset: int) -> list[dict]:
 
 
 def answer_callback(callback_id: str, text: str = "") -> None:
-    call("answerCallbackQuery", callback_query_id=callback_id, text=text)
+    """Telegram принимает ответ на нажатие только несколько секунд; при опросе раз в N минут он уже «too old».
+    Это косметика (убрать «часики» на кнопке), поэтому ошибку игнорируем."""
+    try:
+        call("answerCallbackQuery", callback_query_id=callback_id, text=text)
+    except TelegramError:
+        pass
 
 
 def draft_buttons(draft_id: str) -> list[list[tuple[str, str]]]:

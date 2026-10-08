@@ -1,4 +1,15 @@
-from solar_outreach.config import dry_run, load_config, update_env
+import pytest
+
+from solar_outreach.config import dry_run, load_config, single_run, update_env
+
+
+def test_single_run_blocks_parallel_and_releases():
+    with single_run("pytest_lock"):
+        with pytest.raises(SystemExit):
+            with single_run("pytest_lock"):
+                pass
+    with single_run("pytest_lock"):  # освобождена после выхода
+        pass
 
 
 def test_criteria_ranges_are_consistent():

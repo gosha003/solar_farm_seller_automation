@@ -10,7 +10,7 @@ import sys
 from datetime import date
 
 from solar_outreach import drafts, llm, notify, rules, sheets
-from solar_outreach.config import load_config
+from solar_outreach.config import load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
 
@@ -150,4 +150,5 @@ def main(test_n: int = 0) -> None:
 
 if __name__ == "__main__":
     n = sys.argv[sys.argv.index("--test") + 1] if "--test" in sys.argv else "0"
-    main(int(n))
+    with single_run("sheet"):
+        main(int(n))
