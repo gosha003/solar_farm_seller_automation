@@ -1,0 +1,59 @@
+# Бизнес-параметры системы. Код ничего из этого не хардкодит.
+# Реальная отправка управляется ТОЛЬКО env DRY_RUN (по умолчанию true), не этим файлом.
+
+approval_mode: manual          # manual | auto (/auto on|off; зеркало во вкладке «Настройки»)
+
+owner:                         # раздел 1: в письмах можно использовать только эти факты
+  name: {bg: Иван Петров, en: Ivan Petrov, ru: Иван Петров}
+  company: {bg: Пример Солар ЕООД, en: Example Solar EOOD, ru: Пример Солар ЕООД}
+  email: owner@example.com
+  phone: "+359 88 000 0000"    # единственный номер для продавцов
+  timezone: America/Toronto
+  facts:
+    - Internal note.
+    - Internal note.
+    - Цель - купить готовую действующую ФЕЦ 1-2 МВт.
+    - Покупатель сейчас за границей и предпочитает письменное общение.
+
+criteria:                      # раздел 2
+  min_kwp: 1000
+  max_kwp: 2000
+  soft_min_kwp: 900            # 900-1000 и 2000-2200: писать, пометить «вне диапазона»
+  soft_max_kwp: 2200
+  price_per_kwp_eur:
+    preferred: [800, 900]
+    acceptable: [700, 1000]
+    suspicious_below: 600      # писать, пометить
+    skip_above: 1100           # не писать, если цена известна
+  min_year_preferred: 2018
+  regime: any                  # преференциальный тариф или свободный рынок (IBEX)
+  region: all_bulgaria
+  status_required: operating
+
+eur_bgn: 1.95583               # фиксированный курс
+
+llm:
+  model_fast: claude-haiku-5-5     # классификация и извлечение фактов
+  model_strong: claude-sonnet-5-5  # черновики писем и ответы
+  json_retries: 1                  # после этого эскалация владельцу
+
+limits:                        # раздел 10
+  approvals_before_auto_offer: 10
+  new_per_day: 30              # новые первые письма в сутки, без разгона; ответы в диалогах без лимита
+  send_pause_sec: [60, 180]
+  followup_days: [4, 9]        # длина списка = максимум дожимов на контакт
+  bounce_rate_stop: 0.10
+
+scraping:
+  delay_sec: [3, 5]
+  user_agent: "Mozilla/5.0 (compatible; SolarBG-search/0.1)"
+
+gmail:
+  label: SolarBG
+  sender_name: Иван Петров
+
+notify:
+  digest_hour: 8               # по owner.timezone
+  email_prefix: "[SOLAR]"
+
+sheet_title: "Solar BG: продавцы ФЕЦ 1-2 МВт"
