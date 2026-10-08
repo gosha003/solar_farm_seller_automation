@@ -17,7 +17,7 @@ first:
   questions:
     - Is the plant operating at the moment, and is the listing still current?
     - What is the connected capacity and what are the terms of the grid connection agreement?
-    - "Are the main documents in place: title to the land (held by the company that owns the plant), building permit, and the grid connection agreement with the distribution company?"
+    - "Are the main documents in place: title to the land, building permit, and the grid connection agreement with the distribution company?"
     - What is the asking price?
   outro: |-
     I am currently abroad, so written communication suits me best. Thank you in advance!
@@ -26,11 +26,11 @@ second:
   intro: "Thank you for the information. To evaluate the plant, could you please also clarify:"
   questions:
     "5 год ввода": Year of commissioning.
-    "6 выработка/выручка": Energy produced and revenue for the last 2-3 years (if possible, with a sample report or invoices).
-    "7 режим продажи": "Sales regime: feed-in tariff (until which year) or free market; who is the trading intermediary."
+    "6 выработка/выручка": Energy produced and revenue for the last 2-3 years, if possible with a sample report or invoices.
+    "7 режим продажи": "Sales regime: feed-in tariff and until which year, or free market and who is the trading intermediary."
     "8 панели": Make and model of the panels and inverters.
-    "9 земля собств/аренда": Is the land owned or leased (if leased - until when and from whom)?
-    "10 актив/SPV, обременения": Is the plant itself for sale or the company (SPV); are there any loans, encumbrances or pledges?
+    "9 земля собств/аренда": Is the land owned or leased? If leased, until when and from whom?
+    "10 актив/SPV, обременения": Is the plant itself for sale or the company; are there any loans, encumbrances or pledges?
     docs: Please send copies of the documents from item 3 to owner@example.com.
   outro: Thank you!
 
