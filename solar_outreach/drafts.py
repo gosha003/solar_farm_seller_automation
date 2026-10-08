@@ -62,8 +62,9 @@ def numbered(items: list[str]) -> str:
 def first(row: dict, lang: str) -> tuple[str, str]:
     t = template(lang)
     desc, ref = description(row, lang)
-    intro = t["first"]["intro_broker" if is_broker(row) else "intro_private"].format(description=desc)
-    body = f"{intro}\n{numbered(t['first']['questions'])}\n\n{t['first']['outro']}\n\n{t['signature']}"
+    intro = t["first"]["intro_private"].format(description=desc)
+    extra = f"{t['first']['broker_extra']}\n\n" if is_broker(row) else ""
+    body = f"{intro}\n{numbered(t['first']['questions'])}\n\n{extra}{t['first']['outro']}\n\n{t['signature']}"
     return t["first"]["subject"].format(ref=ref), body
 
 

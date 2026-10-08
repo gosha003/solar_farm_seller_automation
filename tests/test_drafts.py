@@ -19,11 +19,12 @@ def test_every_rendered_letter_passes_section4_rules(lang, row):
 def test_first_letter_content():
     subject, body = drafts.first(ROW, "bg")
     assert subject == "Запитване за фотоволтаична централа - Плевен"
-    assert "Видях Вашата обява за фотоволтаична централа 1,5 MW в района на Плевен. За всяка централа" in body  # брокер
+    assert "Видях Вашата обява за фотоволтаична централа 1,5 MW в района на Плевен и ще се радвам" in body
     assert "\n1. Централата действаща ли е" in body and "\n4. Каква е исканата цена?" in body
+    assert "цена?\n\nАко имате и други действащи централи" in body          # брокер: вопрос про портфель в конце
     s2, b2 = drafts.first(PRIVATE, "bg")
     assert s2 == "Запитване за фотоволтаична централа - обява 10983881"
-    assert "обява за фотоволтаична централа и ще се радвам" in b2
+    assert "обява за фотоволтаична централа и ще се радвам" in b2 and "други действащи" not in b2
 
 
 def test_second_letter_skips_answered_items():
