@@ -6,11 +6,13 @@
 Состояние между запусками в «_state»: tg_offset, pending_edit. Счётчик одобренных в «Настройки».
 """
 import os
+import random
 import sys
+import time
 from datetime import date
 
-from solar_outreach import drafts, llm, notify, rules, sheets
-from solar_outreach.config import load_config, single_run
+from solar_outreach import drafts, gmail_client as gmail, inbox, llm, notify, rules, sheets
+from solar_outreach.config import dry_run, load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
 
@@ -76,7 +78,7 @@ def handle_updates(state, stations, by_id) -> tuple[dict, list, int]:
                     st["статус переписки"] = "одобрено, ждёт отправки"
                 notify.answer_callback(cq["id"], "Одобрено")
                 notify.send(f"✅ {did} одобрено." + (" Тест: никуда не отправляется." if test else
-                            " DRY_RUN: письмо не отправлено (отправка с Фазы 3)." if d["канал"] == "email"
+                            " Письмо уйдёт в этом же запуске." if d["канал"] == "email"
                             else " Текст и ссылки во вкладке «Ручная очередь»."))
             elif action == "s":
                 d["статус"] = "пропущено"
@@ -111,6 +113,53 @@ def handle_updates(state, stations, by_id) -> tuple[dict, list, int]:
     return changed, queue, approved
 
 
+def to_send(by_id: dict) -> list[dict]:
+    """Одобренные email-черновики, ещё не отправленные. Помеченные DRY_RUN ждут, пока DRY_RUN не выключат."""
+    pending = ("",) if dry_run() else ("", "DRY_RUN")
+    return [d for d in by_id.values() if d["статус"] == "одобрено" and d["канал"] == "email"
+            and "ТЕСТ" not in d["тип"] and d.get("отправлено", "") in pending]
+
+
+def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: dict) -> list[dict]:
+    """Отправка через Gmail с паузой 60-180 с. Возвращает строки «Диалоги» (out)."""
+    if not ds:
+        return []
+    svc = gmail.service()
+    blacklist = sheets.read(api, sid, "Чёрный список")
+    sent_first = {x["кому"].lower() for x in by_id.values() if x["тип"].startswith("первое") and x.get("тред Gmail")}
+    out = []
+    for i, d in enumerate(ds):
+        to = d["кому"].split(",")[0].strip()
+        if inbox.blacklisted(to, blacklist):
+            d["статус"] = "чёрный список"
+            notify.send(f"⛔ {d['id']}: {to} в чёрном списке, не отправлено.")
+            continue
+        if d["тип"].startswith("первое") and to.lower() in sent_first:
+            d["статус"] = "дубль адреса"
+            notify.send(f"⛔ {d['id']}: на {to} уже уходило первое письмо, второе не отправляю.")
+            continue
+        if i and not dry_run():
+            time.sleep(random.uniform(*cfg["limits"]["send_pause_sec"]))
+        res = gmail.send(svc, to, d["тема"], d["текст"], d.get("тред Gmail", ""), d.get("in-reply-to", ""))
+        if res.get("dry_run"):
+            d["отправлено"] = "DRY_RUN"
+            notify.send(f"🧪 {d['id']}: DRY_RUN, письмо на {to} не отправлено.")
+            continue
+        today = date.today().isoformat()
+        d.update({"статус": "отправлено", "отправлено": today, "тред Gmail": res["threadId"]})
+        sent_first.add(to.lower())
+        st = stations[d["id станции"]]
+        st.update({"статус переписки": "ждём ответа", "последний контакт": today, "следующий шаг": "ждать ответа"})
+        first_letter = d["тип"].startswith("первое")
+        for item in sheets.ITEMS:  # первое письмо спрашивает пункты 1-4, ответ: все оставшиеся
+            if st.get(item) == "не спрошено" and (not first_letter or item.split()[0] in ("1", "2", "3", "4")):
+                st[item] = "спрошено"
+        out.append({"id станции": d["id станции"], "направление": "out", "дата": today, "канал": "email",
+                    "язык": d["язык"], "краткое содержание": f"{d['тип']}: {d['тема']}", "тред Gmail": res["threadId"]})
+        notify.send(f"📤 {d['id']}: отправлено на {to}.")
+    return out
+
+
 def main(test_n: int = 0) -> None:
     cfg = load_config()
     api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
@@ -134,6 +183,10 @@ def main(test_n: int = 0) -> None:
             st["статус переписки"] = "черновик"
         new.append(d)
 
+    sending = to_send(by_id)
+    dialogs = send_approved(api, sid, sending, by_id, stations, cfg)
+    changed.update({d["id"]: d for d in sending})
+    sheets.append(api, sid, "Диалоги", dialogs)
     sheets.update(api, sid, "Черновики", list(changed.values()))
     sheets.append(api, sid, "Черновики", new)
     sheets.append(api, sid, "Ручная очередь", queue)

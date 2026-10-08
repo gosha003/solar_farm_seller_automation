@@ -33,6 +33,21 @@ def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> int:
     return call("sendMessage", **params)["message_id"]
 
 
+def urgent(text: str) -> None:
+    """Срочное: Telegram сразу; если Telegram недоступен, письмо владельцу с префиксом [SOLAR] (раздел 10)."""
+    try:
+        send(text)
+    except TelegramError:
+        email_owner(text.split("\n", 1)[0][:80], text)
+
+
+def email_owner(subject: str, text: str) -> None:
+    from solar_outreach import gmail_client
+    from solar_outreach.config import load_config
+    cfg = load_config()
+    gmail_client.send(gmail_client.service(), cfg["owner"]["email"], f"{cfg['notify']['email_prefix']} {subject}", text)
+
+
 def updates(offset: int) -> list[dict]:
     """Только апдейты из чата владельца; остальное молча отбрасываем (бот находим поиском, писать может кто угодно)."""
     owner = str(os.environ["TELEGRAM_CHAT_ID"])

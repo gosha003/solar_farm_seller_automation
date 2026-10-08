@@ -16,7 +16,7 @@ TABS = {
                 "статус переписки", "последний контакт", "следующий шаг", "примечание"],
     "Диалоги": ["id станции", "направление", "дата", "канал", "язык", "краткое содержание", "тред Gmail"],
     "Черновики": ["id", "id станции", "дата", "язык", "тип", "канал", "кому", "тема", "текст", "статус",
-                  "tg сообщение", "правка владельца", "нарушения правил"],
+                  "tg сообщение", "правка владельца", "нарушения правил", "тред Gmail", "in-reply-to", "отправлено"],
     "Ручная очередь": ["id станции", "канал", "ссылка на объявление", "текст", "WhatsApp", "Viber", "статус"],
     "Чёрный список": ["контакт или домен", "причина", "дата"],
     "Настройки": ["параметр", "значение"],  # ключ, значение: формат kv()/set_kv()
@@ -72,14 +72,15 @@ def create(api, title: str, settings: list[list]) -> str:
 
 
 def ensure_tabs(api, sid: str) -> None:
-    """Вкладки, появившиеся в новых фазах, дописываются в уже созданную таблицу."""
+    """Вкладки и колонки, появившиеся в новых фазах, дописываются в уже созданную таблицу.
+    Новые колонки добавляются только в конец, поэтому старые строки не съезжают."""
     have = {s["properties"]["title"] for s in api.get(spreadsheetId=sid, fields="sheets.properties.title").execute()["sheets"]}
     missing = [t for t in TABS if t not in have]
     if missing:
         api.batchUpdate(spreadsheetId=sid, body={"requests": [
             {"addSheet": {"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}}} for t in missing]}).execute()
-        api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "RAW", "data": [
-            {"range": f"'{t}'!A1", "values": [TABS[t]]} for t in missing]}).execute()
+    api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "RAW", "data": [
+        {"range": f"'{t}'!A1", "values": [h]} for t, h in TABS.items()]}).execute()
 
 
 def read(api, sid: str, tab: str) -> list[dict]:
