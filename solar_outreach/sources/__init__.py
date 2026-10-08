@@ -1,7 +1,8 @@
 """Площадки объявлений. Каждый модуль: links(fetch) -> {url: заголовок} и parse_ad(url, html) -> Listing.
 Обход страниц объявлений и отбор по заголовку общий, в search.py.
 
-robots.txt проверен вручную 2026-10-08 (Python-парсер не понимает `*` в правилах):
+robots.txt соблюдает Fetcher (свой разбор: стандартный urllib.robotparser не понимает `*` и `$`).
+Проверено вручную 2026-10-08:
   bazar.bg  /obiavi?q=... и /obiava-* разрешены
   alo.bg    /searchq/?q=... разрешён, пагинация (/searchq/*page=) запрещена, AJAX показа телефона (?ajax=) запрещён
 Недоступны (причина в UNAVAILABLE) и не обходятся.
@@ -10,6 +11,7 @@ import random
 import re
 import time
 from dataclasses import dataclass, field
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -45,17 +47,60 @@ def is_station_sale(title: str) -> bool:
     return bool(PV.search(title)) and not NOT_SALE.search(title)
 
 
+def robots_rules(text: str) -> list[tuple[bool, str]]:
+    """Правила группы `User-agent: *` как (allow, pattern)."""
+    rules, in_star, ua_block = [], False, False
+    for line in text.splitlines():
+        key, _, value = line.split("#")[0].partition(":")
+        key, value = key.strip().lower(), value.strip()
+        if key == "user-agent":
+            in_star = (in_star and ua_block) or value == "*"
+            ua_block = True
+        elif key in ("allow", "disallow"):
+            ua_block = False
+            if in_star and value:
+                rules.append((key == "allow", value))
+    return rules
+
+
+def robots_allows(rules: list[tuple[bool, str]], path: str) -> bool:
+    """RFC 9309: самое длинное совпавшее правило, при равенстве allow. `*` = что угодно, `$` = конец."""
+    best = (-1, True)
+    for allow, pattern in rules:
+        rx = re.escape(pattern).replace(r"\*", ".*").replace(r"\$", "$")
+        if re.match(rx, path) and (len(pattern), allow) > best:
+            best = (len(pattern), allow)
+    return best[1]
+
+
 class Fetcher:
-    """Вежливый GET: нормальный UA, пауза 3-5 с между запросами к сайтам."""
+    """Вежливый GET: нормальный UA, пауза между запросами, robots.txt каждого хоста."""
 
     def __init__(self, user_agent: str, delay: tuple[float, float]):
         self.session = requests.Session()
         self.session.headers["User-Agent"] = user_agent
         self.delay = delay
         self.last = 0.0
+        self.robots: dict[str, list] = {}
+
+    def allowed(self, url: str) -> bool:
+        p = urlparse(url)
+        if p.netloc not in self.robots:
+            try:
+                r = self.session.get(f"{p.scheme}://{p.netloc}/robots.txt", timeout=15)
+                # 4xx = ограничений нет; 5xx/сеть = недоступен, ничего не берём (RFC 9309)
+                self.robots[p.netloc] = robots_rules(r.text) if r.ok else [] if r.status_code < 500 else [(False, "/")]
+            except requests.RequestException:
+                self.robots[p.netloc] = [(False, "/")]
+        path = (p.path or "/") + (f"?{p.query}" if p.query else "")
+        # правило может быть записано и кириллицей («/обяви/»), и %-кодом: разрешено, только если обе формы разрешены
+        return robots_allows(self.robots[p.netloc], unquote(path)) and robots_allows(self.robots[p.netloc], path)
 
     def __call__(self, url: str) -> str | None:
-        """None = страницы нет (404). 429: одна пауза по Retry-After (или 90 с) и повтор, дальше ошибка."""
+        """None = страницы нет (404) или её запрещает robots.txt.
+        429: одна пауза по Retry-After (или 90 с) и повтор, дальше ошибка."""
+        if not self.allowed(url):
+            return None
         for attempt in range(2):
             time.sleep(max(0.0, self.last + random.uniform(*self.delay) - time.monotonic()))
             try:
