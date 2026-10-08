@@ -76,10 +76,11 @@ def robots_allows(rules: list[tuple[bool, str]], path: str) -> bool:
 class Fetcher:
     """Вежливый GET: нормальный UA, пауза между запросами, robots.txt каждого хоста."""
 
-    def __init__(self, user_agent: str, delay: tuple[float, float]):
+    def __init__(self, user_agent: str, delay: tuple[float, float], host_delay: dict[str, float] | None = None):
         self.session = requests.Session()
         self.session.headers["User-Agent"] = user_agent
         self.delay = delay
+        self.host_delay = host_delay or {}  # сайты с жёстким лимитом (alo.bg): минимальная пауза, с
         self.last = 0.0
         self.robots: dict[str, list] = {}
 
@@ -101,8 +102,9 @@ class Fetcher:
         429: одна пауза по Retry-After (или 90 с) и повтор, дальше ошибка."""
         if not self.allowed(url):
             return None
+        pause = max(random.uniform(*self.delay), self.host_delay.get(urlparse(url).netloc, 0))
         for attempt in range(2):
-            time.sleep(max(0.0, self.last + random.uniform(*self.delay) - time.monotonic()))
+            time.sleep(max(0.0, self.last + pause - time.monotonic()))
             try:
                 r = self.session.get(url, timeout=25)
             finally:
@@ -114,4 +116,7 @@ class Fetcher:
             if r.status_code == 404:
                 return None
             r.raise_for_status()
+            if not re.search(r"charset=[\w-]", r.headers.get("content-type", ""), re.I):
+                # нет кодировки или пустой «charset=» (bulgarianproperties.bg): requests взял бы latin-1, а там windows-1251
+                r.encoding = r.apparent_encoding
             return r.text
