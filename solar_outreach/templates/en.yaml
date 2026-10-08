@@ -13,12 +13,7 @@ first:
     My name is Ivan Petrov and I represent Example Solar EOOD. Our company already owns and operates photovoltaic plants across Bulgaria, and we are now looking to acquire an additional operating plant of 1-2 MW.
 
     I saw your listing for {description} and would be glad to learn more:
-  intro_broker: |-
-    Hello,
-
-    My name is Ivan Petrov and I represent Example Solar EOOD. Our company already owns and operates photovoltaic plants across Bulgaria. We are looking for operating photovoltaic plants of 1-2 MW anywhere in Bulgaria. If you have such plants in your portfolio, please send me information about them.
-
-    I saw your listing for {description}. For each plant I would like to know:
+  broker_extra: If you have other operating plants of 1-2 MW, I would be glad to receive information about them as well.
   questions:
     - Is the plant operating at the moment, and is the listing still current?
     - What is the connected capacity and what are the terms of the grid connection agreement?
