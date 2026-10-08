@@ -1,0 +1,18 @@
+# секреты: никогда не коммитить
+.env
+.env.*
+!.env.example
+client_secret*.json
+token*.json
+*.pem
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# рабочие файлы
+downloads/
+*.log
+.idea/
