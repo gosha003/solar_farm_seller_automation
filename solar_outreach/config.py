@@ -19,6 +19,13 @@ def load_env(path: Path = ROOT / ".env") -> None:
             os.environ.setdefault(key, value.strip())
 
 
+def update_env(values: dict[str, str], path: Path = ROOT / ".env") -> None:
+    """Заменяет/добавляет ключи в .env, остальные строки не трогает."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    lines = [line for line in lines if line.partition("=")[0].strip() not in values]
+    path.write_text("\n".join(lines + [f"{k}={v}" for k, v in values.items()]) + "\n", encoding="utf-8")
+
+
 def dry_run() -> bool:
     """Реальная отправка только при явном DRY_RUN=false. Отсутствие, опечатка, что угодно другое = dry run."""
     return os.environ.get("DRY_RUN", "true").strip().lower() != "false"

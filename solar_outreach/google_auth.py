@@ -11,20 +11,13 @@ from pathlib import Path
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from solar_outreach.config import ROOT, load_config
+from solar_outreach.config import ROOT, load_config, update_env
 
 SCOPES = [  # раздел 8: ничего шире
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
 ]
-
-
-def update_env(values: dict[str, str], path: Path = ROOT / ".env") -> None:
-    """Заменяет/добавляет ключи в .env, остальные строки не трогает."""
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    lines = [line for line in lines if line.partition("=")[0].strip() not in values]
-    path.write_text("\n".join(lines + [f"{k}={v}" for k, v in values.items()]) + "\n", encoding="utf-8")
 
 
 def main() -> None:

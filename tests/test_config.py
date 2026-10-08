@@ -1,5 +1,4 @@
-from solar_outreach.config import dry_run, load_config
-from solar_outreach.google_auth import update_env
+from solar_outreach.config import dry_run, load_config, update_env
 
 
 def test_criteria_ranges_are_consistent():
