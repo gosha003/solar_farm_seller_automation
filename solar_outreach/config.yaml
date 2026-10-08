@@ -45,7 +45,7 @@ limits:                        # раздел 10
   bounce_rate_stop: 0.10
 
 scraping:
-  delay_sec: [3, 5]
+  delay_sec: [5, 8]            # alo.bg отвечал 429 уже на 3-5 с
   user_agent: "Mozilla/5.0 (compatible; SolarBG-search/0.1)"
 
 gmail:

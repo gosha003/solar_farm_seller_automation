@@ -3,3 +3,5 @@ anthropic>=0.88
 google-auth-oauthlib>=1.2
 google-api-python-client>=2.100
 pytest>=8
+requests>=2.31
+beautifulsoup4>=4.12
