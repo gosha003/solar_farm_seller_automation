@@ -49,3 +49,10 @@ def test_rows_dedup_by_contact_and_title_but_not_empty_title():
     d = search.to_row(Listing("x", "u4", ""), CFG)
     assert search.keys(a) & search.keys(b)          # тот же телефон и мощность
     assert not search.keys(c) & search.keys(d)      # пустые заголовки не склеиваются
+
+
+def test_ids_continue_after_max_existing():
+    from solar_outreach import search
+    new = [{"id": ""}, {"id": ""}]
+    search.number(new, [{"id": "S001"}, {"id": "S021"}, {"id": "S003"}])
+    assert [r["id"] for r in new] == ["S022", "S023"]

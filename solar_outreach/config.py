@@ -34,17 +34,26 @@ def dry_run() -> bool:
     return os.environ.get("DRY_RUN", "true").strip().lower() != "false"
 
 
+class Busy(SystemExit):
+    """Блокировка занята дольше, чем готовы ждать."""
+
+
 @contextmanager
-def single_run(name: str, stale_sec: int = 1800):
-    """Блокировка от параллельного запуска (раздел 9). Занято -> SystemExit, запуск просто пропускается.
-    ponytail: lock-файл на одной машине; на GitHub Actions то же даёт concurrency-группа."""
+def single_run(name: str, stale_sec: int = 1800, wait: float = 0):
+    """Блокировка от параллельного запуска (раздел 9). Занято -> ждём до wait секунд, потом Busy (запуск пропускается).
+    ponytail: lock-файл на одной машине (VM); второй машине с тем же Sheet он не помешает."""
     lock = Path(tempfile.gettempdir()) / f"solar_outreach_{name}.lock"
-    if lock.exists() and time.time() - lock.stat().st_mtime > stale_sec:
-        lock.unlink(missing_ok=True)  # упавший процесс не держит блокировку вечно
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        raise SystemExit(f"{name}: уже идёт другой запуск, пропускаю")
+    deadline = time.time() + wait
+    while True:
+        if lock.exists() and time.time() - lock.stat().st_mtime > stale_sec:
+            lock.unlink(missing_ok=True)  # упавший процесс не держит блокировку вечно
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            if time.time() >= deadline:
+                raise Busy(f"{name}: уже идёт другой запуск, пропускаю")
+            time.sleep(2)
     try:
         yield
     finally:

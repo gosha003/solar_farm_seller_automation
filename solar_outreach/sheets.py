@@ -105,6 +105,8 @@ def kv(api, sid: str, tab: str) -> dict[str, dict]:
 
 
 def set_kv(api, sid: str, tab: str, values: dict) -> None:
+    if not values:
+        return
     key_col, val_col = TABS[tab]
     existing = kv(api, sid, tab)
     upd = [{**existing[k], val_col: v} for k, v in values.items() if k in existing]

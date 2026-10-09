@@ -1,0 +1,15 @@
+[Unit]
+Description=Solar BG outreach: Telegram, Gmail, отправка
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
+ExecStart=__DIR__/.venv/bin/python -m solar_outreach.engine --daemon
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

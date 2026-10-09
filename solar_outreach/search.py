@@ -101,12 +101,17 @@ def main(local: bool, use_web: bool = False) -> None:
         print(f"{name}: готово, всего новых {len(new)}", flush=True)
 
     new.sort(key=lambda r: (ORDER[r["приоритет"]], -r["скоринг"]))
-    for i, r in enumerate(new, len(existing) + 1):
-        r["id"] = f"S{i:03d}"
-    if not local:
-        sheets.append(api, sid, "Станции", new)
-        down = "; ".join(f"{k}: {v}" for k, v in failed.items() if k not in UNAVAILABLE)  # для дайджеста
-        sheets.set_kv(api, sid, "_state", {"площадки недоступны": down})
+    if local:
+        number(new, existing)
+    else:  # блокировка только на запись: бот не ждёт, пока идёт поиск по сайтам
+        with single_run("sheet", stale_sec=3600, wait=900):
+            existing = sheets.read(api, sid, "Станции")  # пока искали, цикл мог добавить станцию (broker_redirect)
+            seen = set().union(*(keys(r) for r in existing))
+            new = [r for r in new if not keys(r) & seen]
+            number(new, existing)
+            sheets.append(api, sid, "Станции", new)
+            down = "; ".join(f"{k}: {v}" for k, v in failed.items() if k not in UNAVAILABLE)  # для дайджеста
+            sheets.set_kv(api, sid, "_state", {"площадки недоступны": down})
 
     write = [r for r in new if r["приоритет"] != "-"]
     print(f"новых объявлений: {len(new)}, писать: {len(write)}")
@@ -116,6 +121,12 @@ def main(local: bool, use_web: bool = False) -> None:
     print("недоступные площадки:", *[f"  {k}: {v}" for k, v in failed.items()], sep="\n")
     if sid:
         print(f"таблица: https://docs.google.com/spreadsheets/d/{sid}")
+
+
+def number(new: list[dict], existing: list[dict]) -> None:
+    last = max([int(re.sub(r"\D", "", r["id"]) or 0) for r in existing] + [0])
+    for i, r in enumerate(new, last + 1):
+        r["id"] = f"S{i:03d}"
 
 
 def settings(cfg: dict) -> list[list]:
@@ -128,8 +139,4 @@ def settings(cfg: dict) -> list[list]:
 
 
 if __name__ == "__main__":
-    if "--local" in sys.argv:
-        main(True, "--web" in sys.argv)
-    else:
-        with single_run("sheet", stale_sec=3600):  # поиск и одобрение пишут в одну таблицу: одна блокировка
-            main(False, "--web" in sys.argv)
+    main("--local" in sys.argv, "--web" in sys.argv)
