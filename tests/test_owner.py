@@ -54,3 +54,10 @@ def test_menu_commands_without_argument_give_hint():
     c = ctx()
     assert "Сейчас режим manual" in owner.command("/auto", c, DAY) and c.mode() == "manual"
     assert "S019" in owner.command("/status", c, DAY)
+
+
+def test_digest_reminds_about_trial_end(monkeypatch):
+    c = ctx(monkeypatch)
+    c.cfg = {**CFG, "gcp": {"trial_ends": date(2027, 1, 7)}}
+    assert "Free Trial" not in owner.digest(c, date(2026, 12, 20))
+    assert "Activate full account" in owner.digest(c, date(2026, 12, 25))

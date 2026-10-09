@@ -106,6 +106,10 @@ def digest(c: Ctx, today: date) -> str:
         lines.append(f"Bounce за сутки: {bounce}")
     if c.state.get("площадки недоступны"):
         lines.append(f"Недоступные площадки: {c.state['площадки недоступны']}")
+    trial = c.cfg.get("gcp", {}).get("trial_ends")
+    if trial and 0 <= (trial - today).days <= 14:
+        lines.append(f"⏰ Free Trial Google Cloud кончается {trial:%d.%m.%Y}: Billing -> Activate full account, "
+                     "иначе Google остановит VM (потолок $5 остаётся)")
     if c.state.get("последняя ошибка") and c.state["последняя ошибка"][:10] >= since:
         lines.append(f"Последняя ошибка: {c.state['последняя ошибка']}")
     return "\n".join(lines)

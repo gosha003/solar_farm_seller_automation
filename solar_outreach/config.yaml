@@ -65,3 +65,4 @@ sheet_title: "Solar BG: продавцы ФЕЦ 1-2 МВт"
 
 gcp:                           # Фаза 5: VM solar-bot, бюджет 7 CAD (≈ $5) в месяц -> Pub/Sub -> VM выключается
   budget_subscription: projects/solar-bg/subscriptions/billing-alerts-vm
+  trial_ends: 2027-01-07       # Free Trial: до этой даты активировать полный аккаунт, иначе Google остановит VM
