@@ -1,11 +1,12 @@
 """Владельцу: команды Telegram (раздел 15), /stats и утренний дайджест (раздел 10).
-Всё считается из таблицы (единственный источник правды), здесь только чтение и тексты; запись делает approval.main.
+Всё считается из таблицы (единственный источник правды). Команды меняют данные запуска в Ctx,
+в таблицу их пишет approval.main (кроме отметки строк «Ручной очереди» в /sent).
 """
 from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from solar_outreach import sheets
+from solar_outreach import inbox, llm, sheets
 
 HELP = """Команды:
 /stats статистика
@@ -14,7 +15,9 @@ HELP = """Команды:
 /queue ручная очередь (WhatsApp/Viber/сайт)
 /digest дайджест сейчас
 /blacklist <email, телефон или домен> больше не писать
-/status <id станции> карточка станции"""
+/status <id станции> карточка станции
+/sent <id станции> ты отправил сообщение сам (WhatsApp, Viber, сайт, своя почта): ждём ответа, дожимы через 4 и 9 дней
+/note <id станции> <ответ продавца> вставь ответ из WhatsApp/Viber: факты в таблицу, эскалация или черновик ответа"""
 
 
 class Ctx:
@@ -23,6 +26,10 @@ class Ctx:
         self.api, self.sid, self.cfg = api, sid, cfg
         self.stations, self.by_id, self.dialogs, self.settings, self.state = stations, by_id, dialogs, settings, state
         self.blacklist_add: list[dict] = []
+        self.changed_drafts: dict[str, dict] = {}
+        self.new_drafts: list[dict] = []
+        self.new_dialogs: list[dict] = []
+        self.new_refusals: list[dict] = []
 
     def mode(self) -> str:
         return self.settings.get("approval_mode") or self.cfg["approval_mode"]
@@ -125,6 +132,73 @@ def digest_due(c: Ctx, now: datetime | None = None) -> bool:
     return now.hour >= c.cfg["notify"]["digest_hour"] and c.state.get("дайджест") != now.date().isoformat()
 
 
+def sent(c: Ctx, station_id: str, today: date) -> str:
+    """Владелец сам отправил одобренное сообщение: черновик отправлен, станция ждёт ответа, строка очереди закрыта."""
+    st = c.stations.get(station_id.upper())
+    if not st:
+        return f"Нет станции {station_id}"
+    t = today.isoformat()
+    ds = [d for d in c.by_id.values() if d["id станции"] == st["id"] and d["статус"] == "одобрено"
+          and "ТЕСТ" not in d["тип"] and d.get("отправлено", "") in ("", "вручную", "DRY_RUN")]
+    if not ds:
+        return f"У {st['id']} нет одобренных неотправленных сообщений. Сначала ✅ на карточке."
+    for d in ds:
+        d.update({"статус": "отправлено", "отправлено": t})
+        c.changed_drafts[d["id"]] = d
+        c.new_dialogs.append({"id станции": st["id"], "направление": "out", "дата": t, "канал": f"{d['канал']} (вручную)",
+                              "язык": d["язык"], "краткое содержание": f"{d['тип']}, отправил владелец", "тред Gmail": ""})
+        if not d["тип"].startswith("дожим"):
+            sheets.mark_asked(st, d["тип"].startswith("первое"))
+    st.update({"статус переписки": "ждём ответа", "последний контакт": t, "следующий шаг": "ждать ответа"})
+    rows = [r for r in sheets.read(c.api, c.sid, "Ручная очередь")
+            if r["id станции"] == st["id"] and r["статус"] == "отправить вручную"]
+    sheets.update(c.api, c.sid, "Ручная очередь", [{**r, "статус": "отправлено вручную"} for r in rows])
+    return f"📤 {st['id']}: отмечено отправленным ({', '.join(d['id'] for d in ds)}). Нет ответа: дожим через 4 и 9 дней."
+
+
+def note(c: Ctx, station_id: str, text: str, today: date) -> str:
+    """Ответ продавца не по почте (WhatsApp, Viber, звонок): тот же разбор, что у письма в inbox.process."""
+    st = c.stations.get(station_id.upper())
+    if not st:
+        return f"Нет станции {station_id}"
+    if not text:
+        return f"Пришли /note {st['id']} и текст ответа продавца."
+    try:
+        cl = llm.classify(text, {k: v for k, v in st.items() if k != "_row"})
+    except llm.LLMError as e:
+        return f"⚠️ Не смог разобрать ({e}). Пришли ещё раз."
+    category, t = inbox.decide(cl.category, cl.confidence, text), today.isoformat()
+    got = inbox.apply_facts(st, cl)
+    st["последний контакт"] = t
+    c.new_dialogs.append({"id станции": st["id"], "направление": "in", "дата": t, "канал": "вручную",
+                          "язык": cl.language, "краткое содержание": f"[{category}] {cl.summary_ru}", "тред Gmail": ""})
+    head = f"{st['id']} · {category}\n{cl.summary_ru}" + (f"\nВ таблицу: {', '.join(got)}" if got else "")
+    if category in inbox.ESCALATE:
+        st["статус переписки"], st["следующий шаг"] = "эскалация", f"решение владельца: {category}"
+        return f"🚨 {head}\nЭто решаешь ты, черновик не делаю. Диалог на паузе."
+    if category in inbox.CLOSE:
+        c.new_refusals.append({"контакт": st.get("email") or st.get("телефон") or st["ссылка"], "id станции": st["id"],
+                               "причина": "продано" if category == "sold" else "отказ", "дата": t,
+                               "что написал": cl.summary_ru})
+        st["статус переписки"], st["следующий шаг"] = "отказ", "не писать автоматически"
+        return f"📕 {head}\nЗаписал в «Отказы»."
+    if category == "broker_redirect":
+        return f"↪️ {head}\nНовый контакт: {cl.new_contact or '?'}. Добавь его в «Станции» вручную."
+    if category == "auto_reply":
+        return f"🤖 {head}\nАвтоответ, ничего не делаю."
+    if not inbox.missing_items(st):
+        st["статус переписки"] = "квалифицирована"
+        return f"✅ {head}\nВсе пункты раздела 3 получены: станция квалифицирована."
+    try:
+        d = inbox.manual_reply_draft(st, cl, f"D{len(c.by_id) + 1:03d}")
+    except llm.LLMError as e:
+        return f"{head}\n⚠️ Черновик ответа не получился ({e})."
+    c.by_id[d["id"]] = d
+    c.new_drafts.append(d)
+    st["статус переписки"] = "черновик ответа"
+    return f"📝 {head}\nНе хватает пунктов: {len(inbox.missing_items(st))}. Черновик ответа следующим сообщением."
+
+
 def command(text: str, c: Ctx, today: date) -> str:
     cmd, _, arg = text.strip().partition(" ")
     cmd, arg = cmd.split("@")[0].lower(), arg.strip()
@@ -148,7 +222,14 @@ def command(text: str, c: Ctx, today: date) -> str:
         return f"⛔ {arg} в чёрном списке, больше не пишем."
     if cmd == "/status" and arg:
         return status(c, arg)
+    if cmd == "/sent" and arg:
+        return sent(c, arg.split()[0], today)
+    if cmd == "/note" and arg:
+        sid_, reply = (arg.split(maxsplit=1) + [""])[:2]  # текст ответа может быть многострочным
+        return note(c, sid_, reply.strip(), today)
     hints = {"/auto": f"Сейчас режим {c.mode()}. Пришли /auto on или /auto off.",  # нажато из меню без параметра
              "/status": "Пришли /status и id станции, например /status S019.",
-             "/blacklist": "Пришли /blacklist и email, телефон или домен."}
+             "/blacklist": "Пришли /blacklist и email, телефон или домен.",
+             "/sent": "Пришли /sent и id станции, например /sent S020.",
+             "/note": "Пришли /note, id станции и текст ответа продавца."}
     return hints.get(cmd, HELP)

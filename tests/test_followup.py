@@ -33,3 +33,11 @@ def test_reply_skip_or_pending_cancels():
     assert due([FIRST], "2026-10-05", stations={"S001": {"id": "S001", "статус переписки": "эскалация"}}) == []
     assert due([{**FIRST, "отправлено": "DRY_RUN"}], "2026-10-20") == []
     assert due([{**FIRST, "тип": "первое, ТЕСТ"}], "2026-10-20") == []
+
+
+def test_manual_first_message_gets_manual_followup():
+    manual = {**FIRST, "канал": "сайт (ручная)", "тред Gmail": "", "кому": "https://www.alo.bg/x"}
+    [d] = due([manual], "2026-10-05")
+    assert d["канал"] == "сайт (ручная)" and d["тред Gmail"] == ""
+    [e] = due([{**FIRST, "тред Gmail": ""}], "2026-10-05")
+    assert e["канал"] == "email (вручную)"                       # своя почта владельца: система не отправит

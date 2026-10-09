@@ -78,7 +78,8 @@ def answer_callback(callback_id: str, text: str = "") -> None:
 
 COMMANDS = {"stats": "статистика", "status": "карточка станции: /status S019", "queue": "ручная очередь",
             "digest": "дайджест сейчас", "pause": "остановить отправку продавцам", "resume": "возобновить отправку",
-            "auto": "/auto on или /auto off", "blacklist": "больше не писать: /blacklist email"}
+            "auto": "/auto on или /auto off", "blacklist": "больше не писать: /blacklist email",
+            "sent": "я сам отправил: /sent S020", "note": "ответ продавца из WhatsApp: /note S020 текст"}
 
 
 def set_commands() -> None:

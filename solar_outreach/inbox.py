@@ -57,12 +57,27 @@ def missing_items(st: dict) -> list[str]:
     return [i for i in sheets.ITEMS if not str(st.get(i, "")).startswith(("получен", "отказ"))]
 
 
-def reply_draft(st: dict, msg: dict, c: llm.Classification, did: str) -> dict:
+def reply_body(st: dict, c: llm.Classification) -> str:
+    """Ответ продавцу: ответы на его вопросы (только факты о покупателе) + недостающие пункты раздела 3."""
     lang = c.language
     para = llm.answer_questions(c.seller_questions, lang).paragraph.strip() if c.seller_questions else ""
     body = drafts.second(st, lang)
-    if para:
-        body = f"{GREETING[lang]}\n\n{para}\n\n{body}"
+    return f"{GREETING[lang]}\n\n{para}\n\n{body}" if para else body
+
+
+def manual_reply_draft(st: dict, c: llm.Classification, did: str) -> dict:
+    """/note: продавец ответил в WhatsApp/Viber/на почту владельца; отвечает владелец сам (Ручная очередь)."""
+    lang, body = c.language, reply_body(st, c)
+    channel = "email (вручную)" if st["канал"] == "email" else st["канал"]
+    to = st.get("телефон") if channel.startswith("телефон") else st.get("email") if "email" in channel else st["ссылка"]
+    return {"id": did, "id станции": st["id"], "дата": date.today().isoformat(), "язык": lang, "тип": "ответ",
+            "канал": channel, "кому": to, "тема": "", "текст": body, "статус": "на одобрении",
+            "нарушения правил": ", ".join(rules.violations(body, drafts.template(lang)["signature"]))}
+
+
+def reply_draft(st: dict, msg: dict, c: llm.Classification, did: str) -> dict:
+    lang = c.language
+    body = reply_body(st, c)
     subject = gmail.header(msg, "Subject")
     subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
     return {"id": did, "id станции": st["id"], "дата": date.today().isoformat(), "язык": lang, "тип": "ответ",
