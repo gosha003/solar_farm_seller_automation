@@ -59,12 +59,14 @@ def test_incoming_reads_only_our_threads_and_skips_own_messages():
 
 
 def test_dry_run_blocks_sellers_but_allows_owner(monkeypatch):
-    monkeypatch.delenv("DRY_RUN", raising=False)
+    monkeypatch.setenv("DRY_RUN", "true")  # явно: .env владельца может содержать false, load_env его не перетрёт
     svc = FakeSvc()
     assert gmail.send(svc, "seller@abv.bg", "s", "b") == {"dry_run": True} and svc.calls == []
     assert gmail.send(svc, "Ivan <owner@example.com>", "[SOLAR] t", "b")["id"] == "s1"
     kinds = [c[0] for c in svc.calls]
     assert kinds == ["send", "modify"] and svc.calls[1][2] == {"addLabelIds": ["L1"]}   # метка SolarBG
+    monkeypatch.setenv("DRY_RUN", "false")
+    assert gmail.send(svc, "seller@abv.bg", "s", "b")["id"] == "s1"
 
 
 def test_message_headers_are_plain_and_named():
