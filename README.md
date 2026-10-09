@@ -15,7 +15,7 @@
 | 2 | Черновики bg/en/ru, одобрение в Telegram | готово (10/10 одобрено) |
 | 3 | Gmail: отправка под одобрение, чтение ответов, эскалации | готово, тест на ящике владельца пройден; DRY_RUN=false, режим manual |
 | 4 | Автоотправка, дожимы, дайджест, bounce-стоп | собрано, идут сутки проверки; режим manual до `/auto on` |
-| 5 | Развёртывание, мониторинг, `/pause`, ротация ключей | в работе |
+| 5 | Развёртывание, мониторинг, `/pause`, ротация ключей | VM работает с 2026-10-08; проверка суток и счёта Billing |
 
 ## Решения Фазы 0 (отклонения от ТЗ)
 
@@ -92,7 +92,11 @@ Copy-Item .env.example .env   # затем заполнить
 ## Развёртывание (Фаза 5)
 
 VM `solar-bot`, Google Cloud проект `solar-bg`, зона `us-east1-b`, всё в бесплатном лимите:
-e2-micro, стандартный диск 30 ГБ (не balanced: он платный), без снапшотов. Бюджет-алерт $1 на email.
+e2-micro, стандартный диск 30 ГБ (не balanced: он платный), без снапшотов, без RDP.
+Потолок расходов: бюджет 7 CAD (≈ $5, валюта аккаунта CAD) в месяц, кредиты триала не вычитаются. Письма Google на 20% (≈ $1), 50%, 90%, 100%.
+На 100% отчёт приходит в Pub/Sub `billing-alerts`, демон (раз в 5 мин, `budget.py`) шлёт срочное уведомление и выключает VM.
+Сам бюджет Google ничего не ограничивает, ограничивает только это выключение; отчёты Google запаздывают до суток.
+Сервис-аккаунт VM `solar-bot` может только читать подписку `billing-alerts-vm`.
 Трафик к Gmail/Drive бесплатный, остальное (Telegram, Claude, сайты) далеко ниже 1 ГБ/мес.
 
 - `solar-bot` (systemd): `engine --daemon`. Почта раз в минуту, между проверками ждёт Telegram (ответ за секунды). Падение: перезапуск через 30 с; 3 сбоя подряд: срочное уведомление.
@@ -104,7 +108,7 @@ e2-micro, стандартный диск 30 ГБ (не balanced: он плат�
 - `/pause` в Telegram: продавцам ничего не уходит, входящие разбираются, эскалации приходят. `/resume` продолжает.
 - Полный стоп бота: `gcloud compute ssh solar-bot --zone us-east1-b --command "sudo systemctl stop solar-bot"` (запуск: `start`).
 - Стоп всего, включая VM: `gcloud compute instances stop solar-bot --zone us-east1-b`.
-- Логи: `gcloud compute ssh solar-bot --zone us-east1-b --command "journalctl -u solar-bot -n 100"`.
+- Состояние и логи: `gcloud compute ssh solar-bot --zone us-east1-b --command "sh solar/deploy/status.sh"`.
 
 ### Ротация ключей
 1. Claude / Telegram: `.venv\Scripts\python -m solar_outreach.set_secrets` (старый ключ отозвать в консоли Anthropic / `/revoke` у BotFather).
