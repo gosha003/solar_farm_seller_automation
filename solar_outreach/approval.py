@@ -1,9 +1,10 @@
-"""Фаза 2: черновики -> Telegram на одобрение -> таблица. Ничего не отправляет продавцам (отправка = Фаза 3).
+"""Telegram (кнопки и команды) -> черновики (первые письма, дожимы) -> отправка в рамках лимитов -> дайджест.
 
     python -m solar_outreach.approval            # обработать нажатия/правки владельца, создать черновики новых станций
     python -m solar_outreach.approval --test 9   # плюс 9 тестовых черновиков по мелким станциям (не отправляются)
 
-Состояние между запусками в «_state»: tg_offset, pending_edit. Счётчик одобренных в «Настройки».
+Состояние между запусками в «_state»: tg_offset, pending_edit, дайджест, ошибки.
+«Настройки»: approval_mode (manual|auto, меняет /auto), пауза (/pause), счётчик одобренных.
 """
 import os
 import random
@@ -11,7 +12,7 @@ import sys
 import time
 from datetime import date
 
-from solar_outreach import drafts, gmail_client as gmail, inbox, llm, notify, rules, sheets
+from solar_outreach import drafts, followup, gmail_client as gmail, inbox, llm, notify, owner, rules, sheets
 from solar_outreach.config import dry_run, load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
@@ -52,7 +53,26 @@ def queue_row(d: dict, st: dict) -> dict:
     return row
 
 
-def handle_updates(state, stations, by_id) -> tuple[dict, list, int]:
+def approve(d: dict, st: dict, queue: list) -> None:
+    """Одобрение (кнопкой или в режиме auto): email уйдёт при отправке, остальное в «Ручную очередь»."""
+    d["статус"] = "одобрено"
+    if "ТЕСТ" not in d["тип"]:
+        if d["канал"] != "email":
+            queue.append(queue_row(d, st))
+        st["статус переписки"] = "одобрено, ждёт отправки"
+
+
+def present(d: dict, st: dict, auto: bool, queue: list) -> None:
+    """Новый черновик: в режиме auto без нарушений правил одобряется сам, иначе карточка с кнопками владельцу."""
+    if auto and not d["нарушения правил"] and "ТЕСТ" not in d["тип"]:
+        approve(d, st, queue)
+        if d["канал"] != "email":
+            notify.send(f"📱 {d['id']} · {d['id станции']}: отправь вручную, текст и ссылки во вкладке «Ручная очередь».")
+    else:
+        d["tg сообщение"] = notify.send(card(d, st), notify.draft_buttons(d["id"]))
+
+
+def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tuple[dict, list, int]:
     """Возвращает (изменённые черновики, строки ручной очереди, прирост одобренных)."""
     offset = int(state.get("tg_offset") or 0)
     pending = state.get("pending_edit") or ""
@@ -70,16 +90,11 @@ def handle_updates(state, stations, by_id) -> tuple[dict, list, int]:
                 continue
             st = stations[d["id станции"]]
             if action == "a":
-                d["статус"] = "одобрено"
+                approve(d, st, queue)
                 approved += 1
-                test = "ТЕСТ" in d["тип"]
-                if not test and d["канал"] != "email":
-                    queue.append(queue_row(d, st))
-                if not test:
-                    st["статус переписки"] = "одобрено, ждёт отправки"
                 notify.answer_callback(cq["id"], "Одобрено")
-                notify.send(f"✅ {did} одобрено." + (" Тест: никуда не отправляется." if test else
-                            " Письмо уйдёт в этом же запуске." if d["канал"] == "email"
+                notify.send(f"✅ {did} одобрено." + (" Тест: никуда не отправляется." if "ТЕСТ" in d["тип"] else
+                            " Письмо уйдёт в ближайшем запуске." if d["канал"] == "email"
                             else " Текст и ссылки во вкладке «Ручная очередь»."))
             elif action == "s":
                 d["статус"] = "пропущено"
@@ -109,7 +124,7 @@ def handle_updates(state, stations, by_id) -> tuple[dict, list, int]:
             d["tg сообщение"] = notify.send(card(d, st), notify.draft_buttons(d["id"]))
             changed[d["id"]] = d
         elif msg.get("text", "").startswith("/"):
-            notify.send("Команды (/stats, /pause, /auto ...) появятся в Фазе 4.")
+            notify.send(owner.command(msg["text"], ctx, date.today()) if ctx else owner.HELP)
     state["tg_offset"], state["pending_edit"] = offset, pending
     return changed, queue, approved
 
@@ -121,8 +136,12 @@ def to_send(by_id: dict) -> list[dict]:
             and "ТЕСТ" not in d["тип"] and d.get("отправлено", "") in pending]
 
 
-def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: dict) -> list[dict]:
-    """Отправка через Gmail с паузой 60-180 с. Возвращает строки «Диалоги» (out)."""
+def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: dict,
+                  left: dict | None = None, quiet: bool = False) -> list[dict]:
+    """Отправка через Gmail с паузой 60-180 с. Возвращает строки «Диалоги» (out).
+    left = {"run": первых писем и дожимов за этот запуск, "first": первых писем до суточного лимита};
+    не влезшее остаётся «одобрено» и уходит в следующих запусках. Ответы в диалогах без лимита (раздел 10)."""
+    left = left if left is not None else {"run": len(ds), "first": len(ds)}
     if not ds:
         return []
     svc = gmail.service()
@@ -130,7 +149,7 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
     refused = {r["контакт"].lower().strip() for r in sheets.read(api, sid, "Отказы")}
     sent_first = {x["кому"].lower() for x in by_id.values() if x["тип"].startswith("первое") and x.get("тред Gmail")}
     out = []
-    for i, d in enumerate(ds):
+    for d in ds:
         to = d["кому"].split(",")[0].strip()
         if inbox.blacklisted(to, blacklist):
             d["статус"] = "чёрный список"
@@ -149,26 +168,43 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
             d["статус"] = "дубль адреса"
             notify.send(f"⛔ {d['id']}: на {to} уже уходило первое письмо, второе не отправляю.")
             continue
-        if i and not dry_run():
+        first, outreach = d["тип"].startswith("первое"), d["тип"].startswith(("первое", "дожим"))
+        if outreach and (left["run"] <= 0 or first and left["first"] <= 0):
+            continue
+        if out and not dry_run():
             time.sleep(random.uniform(*cfg["limits"]["send_pause_sec"]))
         res = gmail.send(svc, to, d["тема"], d["текст"], d.get("тред Gmail", ""), d.get("in-reply-to", ""))
         if res.get("dry_run"):
             d["отправлено"] = "DRY_RUN"
             notify.send(f"🧪 {d['id']}: DRY_RUN, письмо на {to} не отправлено.")
             continue
+        left["run"] -= outreach
+        left["first"] -= first
         today = date.today().isoformat()
         d.update({"статус": "отправлено", "отправлено": today, "тред Gmail": res["threadId"]})
-        sent_first.add(to.lower())
+        if first:
+            sent_first.add(to.lower())
         st = stations[d["id станции"]]
         st.update({"статус переписки": "ждём ответа", "последний контакт": today, "следующий шаг": "ждать ответа"})
-        first_letter = d["тип"].startswith("первое")
-        for item in sheets.ITEMS:  # первое письмо спрашивает пункты 1-4, ответ: все оставшиеся
-            if st.get(item) == "не спрошено" and (not first_letter or item.split()[0] in ("1", "2", "3", "4")):
-                st[item] = "спрошено"
+        if not d["тип"].startswith("дожим"):  # первое письмо спрашивает пункты 1-4, ответ: все оставшиеся
+            for item in sheets.ITEMS:
+                if st.get(item) == "не спрошено" and (not first or item.split()[0] in ("1", "2", "3", "4")):
+                    st[item] = "спрошено"
         out.append({"id станции": d["id станции"], "направление": "out", "дата": today, "канал": "email",
                     "язык": d["язык"], "краткое содержание": f"{d['тип']}: {d['тема']}", "тред Gmail": res["threadId"]})
-        notify.send(f"📤 {d['id']}: отправлено на {to}.")
+        if not quiet:
+            notify.send(f"📤 {d['id']}: отправлено на {to}.")
     return out
+
+
+def bounce_stop(c: owner.Ctx, by_id: dict, today: str) -> None:
+    """Раздел 8: доля bounce за сутки выше порога -> автоотправка выключается (назад в manual), владельцу срочно."""
+    bounces = int(c.state.get(f"bounce {today}") or 0)
+    sent = sum(d.get("отправлено") == today for d in by_id.values())
+    if c.mode() == "auto" and bounces / max(sent, 1) > c.cfg["limits"]["bounce_rate_stop"]:
+        c.settings["approval_mode"] = "manual"
+        notify.urgent(f"🛑 Bounce сегодня {bounces} на {sent} отправленных. Автоотправка выключена, режим manual. "
+                      "Адреса в «Чёрном списке». /auto on вернёт автоотправку.")
 
 
 def main(test_n: int = 0) -> None:
@@ -176,39 +212,63 @@ def main(test_n: int = 0) -> None:
     api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
     sheets.ensure_tabs(api, sid)
     state = {k: r["значение"] for k, r in sheets.kv(api, sid, "_state").items()}
+    settings = {k: r["значение"] for k, r in sheets.kv(api, sid, "Настройки").items()}
     stations = {r["id"]: r for r in sheets.read(api, sid, "Станции")}
     by_id = {d["id"]: d for d in sheets.read(api, sid, "Черновики")}
+    dialogs = sheets.read(api, sid, "Диалоги")
     before = {sid_: dict(st) for sid_, st in stations.items()}
+    settings_before = dict(settings)
+    today = date.today()
+    ctx = owner.Ctx(api, sid, cfg, stations, by_id, dialogs, settings, state)
 
-    changed, queue, approved = handle_updates(state, stations, by_id)
+    changed, queue, approved = handle_updates(state, stations, by_id, ctx)
+    bounce_stop(ctx, by_id, today.isoformat())
+    auto, paused = ctx.mode() == "auto", ctx.paused()
 
-    drafted = {d["id станции"] for d in by_id.values()}
-    real = [s for s in stations.values() if s["статус переписки"] == "новая" and s["приоритет"] != "-" and s["id"] not in drafted]
-    test = sorted((s for s in stations.values() if s["приоритет"] == "-" and s["id"] not in drafted),
-                  key=lambda s: -float(s["скоринг"] or 0))[:test_n]
     new = []
-    for st in real + test:
-        d = make_draft(st, f"D{len(by_id) + len(new) + 1:03d}", st in test)
-        d["tg сообщение"] = notify.send(card(d, st), notify.draft_buttons(d["id"]))
-        if st not in test:
-            st["статус переписки"] = "черновик"
-        new.append(d)
+    if not paused:  # на паузе новые письма не готовим, чтобы не копить кнопки
+        drafted = {d["id станции"] for d in by_id.values()}
+        real = [s for s in stations.values()
+                if s["статус переписки"] == "новая" and s["приоритет"] != "-" and s["id"] not in drafted]
+        test = sorted((s for s in stations.values() if s["приоритет"] == "-" and s["id"] not in drafted),
+                      key=lambda s: -float(s["скоринг"] or 0))[:test_n]
+        for st in real + test:
+            d = make_draft(st, f"D{len(by_id) + len(new) + 1:03d}", st in test)
+            if st not in test:
+                st["статус переписки"] = "черновик"
+            present(d, st, auto, queue)
+            new.append(d)
+        for d in followup.due(stations, by_id, dialogs, cfg["limits"]["followup_days"], today):
+            d["id"] = f"D{len(by_id) + len(new) + 1:03d}"
+            present(d, stations[d["id станции"]], auto, queue)
+            new.append(d)
+    by_id.update({d["id"]: d for d in new})
 
-    sending = to_send(by_id)
-    dialogs = send_approved(api, sid, sending, by_id, stations, cfg)
-    changed.update({d["id"]: d for d in sending})
-    sheets.append(api, sid, "Диалоги", dialogs)
+    sending = [] if paused else to_send(by_id)
+    t = today.isoformat()
+    first_today = sum(d.get("отправлено") == t and d["тип"].startswith("первое") for d in by_id.values())
+    left = {"run": cfg["limits"]["outreach_per_run"], "first": cfg["limits"]["new_per_day"] - first_today}
+    out_dialogs = send_approved(api, sid, sending, by_id, stations, cfg, left, quiet=auto)
+    changed.update({d["id"]: d for d in sending if "_row" in d})  # новые строки уйдут через append
+
+    if owner.digest_due(ctx):
+        notify.urgent(owner.digest(ctx, today))  # Telegram, при сбое письмом [SOLAR]
+        state["дайджест"] = owner.local_now(cfg).date().isoformat()
+
+    sheets.append(api, sid, "Диалоги", out_dialogs)
     sheets.update(api, sid, "Черновики", list(changed.values()))
     sheets.append(api, sid, "Черновики", new)
     sheets.append(api, sid, "Ручная очередь", queue)
+    sheets.append(api, sid, "Чёрный список", ctx.blacklist_add)
     sheets.update(api, sid, "Станции", [st for k, st in stations.items() if st != before[k]])
-    sheets.set_kv(api, sid, "_state", {"tg_offset": state["tg_offset"], "pending_edit": state["pending_edit"]})
+    sheets.set_kv(api, sid, "_state", {"tg_offset": state["tg_offset"], "pending_edit": state["pending_edit"],
+                                       "дайджест": state.get("дайджест", ""), "ошибок подряд": 0})
     if approved:
-        settings = sheets.kv(api, sid, "Настройки")
-        total = int(settings.get("одобрено писем", {}).get("значение") or 0) + approved
-        sheets.set_kv(api, sid, "Настройки", {"одобрено писем": total})
-        if total >= cfg["limits"]["approvals_before_auto_offer"] > total - approved:
-            notify.send(f"{total} писем одобрено. Включить автоотправку? Команда /auto on заработает в Фазе 4.")
+        settings["одобрено писем"] = int(settings.get("одобрено писем") or 0) + approved
+        total = settings["одобрено писем"]
+        if total >= cfg["limits"]["approvals_before_auto_offer"] > total - approved and not auto:
+            notify.send(f"{total} писем одобрено. Включить автоотправку? Пришли /auto on (выключить: /auto off).")
+    sheets.set_kv(api, sid, "Настройки", {k: v for k, v in settings.items() if settings_before.get(k) != v})
     print(f"обновлений черновиков: {len(changed)}, новых черновиков: {len(new)}, в ручную очередь: {len(queue)}")
 
 

@@ -105,6 +105,8 @@ def main(local: bool, use_web: bool = False) -> None:
         r["id"] = f"S{i:03d}"
     if not local:
         sheets.append(api, sid, "Станции", new)
+        down = "; ".join(f"{k}: {v}" for k, v in failed.items() if k not in UNAVAILABLE)  # для дайджеста
+        sheets.set_kv(api, sid, "_state", {"площадки недоступны": down})
 
     write = [r for r in new if r["приоритет"] != "-"]
     print(f"новых объявлений: {len(new)}, писать: {len(write)}")

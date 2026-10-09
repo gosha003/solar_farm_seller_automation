@@ -20,6 +20,14 @@ SCOPES = [  # раздел 8: ничего шире
 ]
 
 
+def credentials():
+    """Учётные данные из .env / секретов (refresh token): общий вход для Gmail, Sheets и Drive."""
+    import os
+    from google.oauth2.credentials import Credentials
+    return Credentials(None, refresh_token=os.environ["GOOGLE_REFRESH_TOKEN"], token_uri="https://oauth2.googleapis.com/token",
+                       client_id=os.environ["GOOGLE_CLIENT_ID"], client_secret=os.environ["GOOGLE_CLIENT_SECRET"], scopes=SCOPES)
+
+
 def main() -> None:
     owner = load_config()["owner"]["email"]
     secret = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "client_secret.json"
