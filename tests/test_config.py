@@ -12,6 +12,11 @@ def test_single_run_blocks_parallel_and_releases():
         pass
 
 
+def test_owner_facts_are_plain_strings():
+    o = load_config()["owner"]  # «Связь: ...» без кавычек YAML читает как словарь
+    assert all(isinstance(f, str) for f in o["facts"] + o["internal_notes"])
+
+
 def test_criteria_ranges_are_consistent():
     c = load_config()["criteria"]
     assert c["soft_min_kwp"] <= c["min_kwp"] < c["max_kwp"] <= c["soft_max_kwp"]
