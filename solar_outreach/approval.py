@@ -207,7 +207,8 @@ def bounce_stop(c: owner.Ctx, by_id: dict, today: str) -> None:
                       "Адреса в «Чёрном списке». /auto on вернёт автоотправку.")
 
 
-def main(test_n: int = 0) -> None:
+def main(test_n: int = 0) -> int:
+    """Один проход. Возвращает offset Telegram для long polling демона."""
     cfg = load_config()
     api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
     sheets.ensure_tabs(api, sid)
@@ -262,7 +263,8 @@ def main(test_n: int = 0) -> None:
     sheets.append(api, sid, "Чёрный список", ctx.blacklist_add)
     sheets.update(api, sid, "Станции", [st for k, st in stations.items() if st != before[k]])
     sheets.set_kv(api, sid, "_state", {"tg_offset": state["tg_offset"], "pending_edit": state["pending_edit"],
-                                       "дайджест": state.get("дайджест", ""), "ошибок подряд": 0})
+                                       "дайджест": state.get("дайджест", ""), "ошибок подряд": 0,
+                                       "последний запуск": f"{owner.local_now(cfg):%Y-%m-%d %H:%M}"})
     if approved:
         settings["одобрено писем"] = int(settings.get("одобрено писем") or 0) + approved
         total = settings["одобрено писем"]
@@ -270,6 +272,7 @@ def main(test_n: int = 0) -> None:
             notify.send(f"{total} писем одобрено. Включить автоотправку? Пришли /auto on (выключить: /auto off).")
     sheets.set_kv(api, sid, "Настройки", {k: v for k, v in settings.items() if settings_before.get(k) != v})
     print(f"обновлений черновиков: {len(changed)}, новых черновиков: {len(new)}, в ручную очередь: {len(queue)}")
+    return int(state["tg_offset"] or 0)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+[Unit]
+Description=Solar BG поиск объявлений (%i)
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
+# %i = web: плюс веб-поиск Claude (~$0.2), раз в сутки; sites: только площадки
+ExecStart=/bin/sh -c 'exec __DIR__/.venv/bin/python -m solar_outreach.search $( [ "%i" = web ] && echo --web )'
+TimeoutStartSec=3h

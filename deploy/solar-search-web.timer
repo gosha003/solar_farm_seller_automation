@@ -1,0 +1,10 @@
+[Unit]
+Description=Поиск по площадкам + веб-поиск раз в сутки
+
+[Timer]
+OnCalendar=*-*-* 07:17
+Persistent=true
+Unit=solar-search@web.service
+
+[Install]
+WantedBy=timers.target

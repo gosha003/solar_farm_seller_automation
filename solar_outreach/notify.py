@@ -1,5 +1,5 @@
-"""Telegram-бот владельца (раздел 10). Опрос getUpdates при каждом запуске, без вебхуков.
-Email-запас ([SOLAR] на owner@example.com) добавляется в Фазе 3 вместе с gmail_client.
+"""Telegram-бот владельца (раздел 10). Без вебхуков: getUpdates при каждом запуске цикла,
+а между запусками демон на VM ждёт апдейты long polling'ом (wait), поэтому ответ за секунды.
 """
 import os
 
@@ -16,7 +16,8 @@ class TelegramError(Exception):
 def call(method: str, **params) -> dict | list:
     """Токен входит в URL, поэтому исключения requests (с URL в тексте) наружу не выпускаем: только метод и описание."""
     try:
-        r = requests.post(API.format(token=os.environ["TELEGRAM_BOT_TOKEN"], method=method), json=params, timeout=30)
+        r = requests.post(API.format(token=os.environ["TELEGRAM_BOT_TOKEN"], method=method), json=params,
+                          timeout=30 + params.get("timeout", 0))  # long polling держит соединение timeout секунд
         data = r.json()
     except (requests.RequestException, ValueError) as e:
         raise TelegramError(f"{method}: {type(e).__name__}") from None
@@ -58,6 +59,12 @@ def updates(offset: int) -> list[dict]:
         u["_owner"] = str(chat.get("id")) == owner and str(sender.get("id")) == owner
         out.append(u)
     return out
+
+
+def wait(offset: int, seconds: int) -> None:
+    """Long polling: вернуться, как только у бота появится апдейт (или через seconds). Апдейты не подтверждаем:
+    их заберёт и обработает следующий запуск цикла с тем же offset."""
+    call("getUpdates", offset=offset, timeout=seconds, limit=1, allowed_updates=["message", "callback_query"])
 
 
 def answer_callback(callback_id: str, text: str = "") -> None:

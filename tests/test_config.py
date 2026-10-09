@@ -41,3 +41,14 @@ def test_update_env_replaces_keys_and_keeps_rest(tmp_path):
     update_env({"GOOGLE_REFRESH_TOKEN": "new", "GOOGLE_CLIENT_ID": "id"}, env)
     lines = env.read_text(encoding="utf-8").splitlines()
     assert lines == ["ANTHROPIC_API_KEY=a", "# comment", "GOOGLE_REFRESH_TOKEN=new", "GOOGLE_CLIENT_ID=id"]
+
+
+def test_single_run_waits_then_gives_up():
+    import time
+    from solar_outreach.config import Busy
+    with single_run("pytest_wait"):
+        t = time.time()
+        with pytest.raises(Busy):
+            with single_run("pytest_wait", wait=0.1):
+                pass
+        assert time.time() - t < 5
