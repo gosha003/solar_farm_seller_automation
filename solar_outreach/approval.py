@@ -15,6 +15,7 @@ from solar_outreach import drafts, gmail_client as gmail, inbox, llm, notify, ru
 from solar_outreach.config import dry_run, load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
+PAUSED = ("эскалация", "отказ", "пропущено владельцем")  # раздел 4: пока владелец не решил, письма не уходят
 
 
 def contact(st: dict) -> str:
@@ -138,6 +139,11 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         if to.lower() in refused:
             d["статус"] = "в отказах"
             notify.send(f"⛔ {d['id']}: {to} в «Отказах» (просил не писать или продано), автоматически не отправляю.")
+            continue
+        if stations[d["id станции"]]["статус переписки"] in PAUSED:
+            d["статус"] = "на паузе"
+            notify.send(f"⏸ {d['id']}: диалог {d['id станции']} на паузе ({stations[d['id станции']]['статус переписки']}), "
+                        "не отправляю. Реши эскалацию, потом пришли правку или одобри заново.")
             continue
         if d["тип"].startswith("первое") and to.lower() in sent_first:
             d["статус"] = "дубль адреса"

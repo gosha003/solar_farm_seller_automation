@@ -61,6 +61,16 @@ def test_edit_flow_rewrites_and_checks_rules(monkeypatch, tg):
     assert "⚠️ Нарушения правил" in tg[-1]
 
 
+def test_paused_dialog_is_not_sent(monkeypatch, tg):
+    d = {**approval.make_draft({**ST, "канал": "email", "email": "s@abv.bg"}, "D005", test=False), "статус": "одобрено"}
+    stations = {"S001": {**ST, "статус переписки": "эскалация"}}
+    monkeypatch.setattr(approval.gmail, "service", lambda: None)
+    monkeypatch.setattr(approval.gmail, "send", lambda *a, **k: pytest.fail("отправка при эскалации"))
+    monkeypatch.setattr(approval.sheets, "read", lambda api, sid, tab: [])
+    assert approval.send_approved(None, None, [d], {"D005": d}, stations, {"limits": {"send_pause_sec": [0, 0]}}) == []
+    assert d["статус"] == "на паузе" and "на паузе" in tg[-1]
+
+
 def test_llm_failure_keeps_draft(monkeypatch, tg):
     d = approval.make_draft(ST, "D004", test=False)
 

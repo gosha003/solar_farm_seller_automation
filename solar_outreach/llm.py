@@ -133,6 +133,10 @@ def answer_questions(questions: list[str], lang: str) -> Answer:
 answering only what can be answered from the facts about the buyer in your instructions (who we are, what we own, \
 that documents can be sent to our email). Skip anything else silently; no greeting, no signature. \
 If nothing can be answered, return an empty paragraph.
+Write as a native business correspondent of that language, formal and natural, first person singular or "our company". \
+Bulgarian terminology: "фотоволтаични централи", "притежава и управлява" (never Russian forms like "владее", \
+"фотоелектрически"). About our company say no more than the facts: no capacities, locations or number of plants, \
+and never say that details are withheld or confidential.
 <seller_questions>{json.dumps(questions, ensure_ascii=False)}</seller_questions>"""
     return call_json("model_strong", user, Answer, effort="low")
 
