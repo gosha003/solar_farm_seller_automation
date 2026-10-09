@@ -48,3 +48,9 @@ def test_digest_once_a_day_after_hour():
     assert owner.digest_due(c, datetime(2026, 10, 9, 8, 0))
     c.state["дайджест"] = "2026-10-09"
     assert not owner.digest_due(c, datetime(2026, 10, 9, 20, 0))
+
+
+def test_menu_commands_without_argument_give_hint():
+    c = ctx()
+    assert "Сейчас режим manual" in owner.command("/auto", c, DAY) and c.mode() == "manual"
+    assert "S019" in owner.command("/status", c, DAY)

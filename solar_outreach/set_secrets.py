@@ -66,6 +66,8 @@ def set_telegram() -> None:
     if input(f"Чат: {who} (id {chat['id']}). Это ты? [y/N] ").strip().lower() != "y":
         sys.exit("Отменено.")
     telegram(token, "sendMessage", chat_id=chat["id"], text="Solar BG: бот подключён.")
+    from solar_outreach.notify import COMMANDS
+    telegram(token, "setMyCommands", commands=json.dumps([{"command": c, "description": d} for c, d in COMMANDS.items()]))
     update_env({"TELEGRAM_BOT_TOKEN": token, "TELEGRAM_CHAT_ID": str(chat["id"])})
     print("Telegram: OK, бот прислал тебе сообщение")
 
