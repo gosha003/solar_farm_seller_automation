@@ -16,8 +16,9 @@ from google.auth.transport.requests import AuthorizedSession
 API = "https://pubsub.googleapis.com/v1/"
 
 
-def spent_ratio(subscription: str, session=None) -> float | None:
-    """Максимум costAmount / budgetAmount среди новых отчётов. None: отчётов нет или мы не на VM."""
+def latest(subscription: str, session=None) -> dict | None:
+    """Новый отчёт Google о расходах с наибольшей суммой (costAmount, budgetAmount, currencyCode).
+    None: новых отчётов нет или мы не на VM."""
     if session is None:
         try:
             creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/pubsub"])
@@ -29,12 +30,18 @@ def spent_ratio(subscription: str, session=None) -> float | None:
         return None
     session.post(f"{API}{subscription}:acknowledge", json={"ackIds": [m["ackId"] for m in msgs]}, timeout=30)
     reports = [json.loads(base64.b64decode(m["message"]["data"])) for m in msgs]
-    return max(r["costAmount"] / r["budgetAmount"] for r in reports if r.get("budgetAmount"))
+    return max((r for r in reports if r.get("budgetAmount")), key=lambda r: r["costAmount"], default=None)
 
 
-def enforce(subscription: str, urgent, session=None) -> None:
-    ratio = spent_ratio(subscription, session)
-    if ratio is not None and ratio >= 1:
+def enforce(subscription: str, urgent, session=None) -> str | None:
+    """Потолок: расходы >= бюджета -> срочно владельцу и выключить VM. Возвращает строку для «_state»/дайджеста."""
+    r = latest(subscription, session)
+    if not r:
+        return None
+    ratio = r["costAmount"] / r["budgetAmount"]
+    if ratio >= 1:
         urgent(f"🛑 Расходы Google Cloud достигли бюджета ({ratio:.0%}). Выключаю VM, бот остановлен. "
                "Проверь Billing в консоли; включить: gcloud compute instances start solar-bot --zone us-east1-b")
         subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
+    cur = r.get("currencyCode", "")
+    return f"{r['costAmount']:.2f} из {r['budgetAmount']:.0f} {cur} с {r.get('costIntervalStart', '')[:10]}"

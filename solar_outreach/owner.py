@@ -113,6 +113,8 @@ def digest(c: Ctx, today: date) -> str:
         lines.append(f"Bounce за сутки: {bounce}")
     if c.state.get("площадки недоступны"):
         lines.append(f"Недоступные площадки: {c.state['площадки недоступны']}")
+    if c.state.get("расходы Google Cloud"):
+        lines.append(f"Google Cloud: {c.state['расходы Google Cloud']}")
     trial = c.cfg.get("gcp", {}).get("trial_ends")
     if trial and 0 <= (trial - today).days <= 14:
         lines.append(f"⏰ Free Trial Google Cloud кончается {trial:%d.%m.%Y}: Billing -> Activate full account, "

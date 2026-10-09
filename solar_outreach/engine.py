@@ -79,7 +79,10 @@ def daemon() -> None:
         if time.time() - last_ping >= PING_EVERY:
             last_ping = time.time()
             try:
-                budget.enforce(load_config()["gcp"]["budget_subscription"], notify.urgent)
+                spent = budget.enforce(load_config()["gcp"]["budget_subscription"], notify.urgent)
+                if spent:  # в таблицу и дайджест: видно, тратит ли проект что-то (внешний IP и т.п.)
+                    sheets.set_kv(sheets.service(), os.environ["SPREADSHEET_ID"], "_state",
+                                  {"расходы Google Cloud": f"{datetime.now():%Y-%m-%d %H:%M} {spent}"})
             except Exception as e:  # сбой проверки бюджета не роняет бота; Google ещё пришлёт письмо
                 print(f"бюджет: {type(e).__name__}", flush=True)
             if os.environ.get("HEALTHCHECK_URL"):

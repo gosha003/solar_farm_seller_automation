@@ -5,5 +5,4 @@ cd "$HOME/solar"
 echo "bot: $(systemctl is-active solar-bot)"
 journalctl -u solar-bot -n 15 --no-pager
 systemctl list-timers 'solar*' --no-pager
-.venv/bin/python -c 'from solar_outreach import budget; print("pubsub:", budget.spent_ratio("projects/solar-bg/subscriptions/billing-alerts-vm"))'
 free -m | sed -n 2p
