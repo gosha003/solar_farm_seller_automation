@@ -15,12 +15,12 @@ from pathlib import Path
 
 import requests
 
-from solar_outreach import approval, gmail_client, inbox, notify, sheets
+from solar_outreach import approval, budget, gmail_client, inbox, notify, sheets
 from solar_outreach.config import Busy, load_config, single_run
 
 ALERT_AFTER = 3        # разовые таймауты Telegram/Google не стоят уведомления, серия из трёх стоит
 INBOX_EVERY = 60       # секунд между проверками почты; Telegram между ними ждём long polling'ом
-PING_EVERY = 300       # HEALTHCHECK_URL (необязательно): внешний «пульс», молчание = демон или VM лежат
+PING_EVERY = 300       # раз в 5 мин: потолок расходов Google Cloud и HEALTHCHECK_URL (необязательно, внешний пульс)
 
 
 def run(test_n: int = 0, with_inbox: bool = True) -> int:
@@ -76,12 +76,17 @@ def daemon() -> None:
             time.sleep(30)
             continue
         offset = res
-        if os.environ.get("HEALTHCHECK_URL") and time.time() - last_ping >= PING_EVERY:
+        if time.time() - last_ping >= PING_EVERY:
+            last_ping = time.time()
             try:
-                requests.get(os.environ["HEALTHCHECK_URL"], timeout=10)
-                last_ping = time.time()
-            except requests.RequestException:
-                pass
+                budget.enforce(load_config()["gcp"]["budget_subscription"], notify.urgent)
+            except Exception as e:  # сбой проверки бюджета не роняет бота; Google ещё пришлёт письмо
+                print(f"бюджет: {type(e).__name__}", flush=True)
+            if os.environ.get("HEALTHCHECK_URL"):
+                try:
+                    requests.get(os.environ["HEALTHCHECK_URL"], timeout=10)
+                except requests.RequestException:
+                    pass
         try:  # до следующей проверки почты ждём Telegram; нажатие или команда будят цикл сразу
             notify.wait(offset, max(1, int(last_inbox + INBOX_EVERY - time.time())))
         except notify.TelegramError:
