@@ -11,19 +11,16 @@ from email.message import EmailMessage
 from email.utils import make_msgid, parseaddr
 
 from bs4 import BeautifulSoup
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from solar_outreach.config import dry_run, load_config
-from solar_outreach.google_auth import SCOPES
+from solar_outreach.google_auth import credentials
 
 DONE_SUFFIX = "/обработано"
 
 
 def service():
-    creds = Credentials(None, refresh_token=os.environ["GOOGLE_REFRESH_TOKEN"], token_uri="https://oauth2.googleapis.com/token",
-                        client_id=os.environ["GOOGLE_CLIENT_ID"], client_secret=os.environ["GOOGLE_CLIENT_SECRET"], scopes=SCOPES)
-    return build("gmail", "v1", credentials=creds, cache_discovery=False).users()
+    return build("gmail", "v1", credentials=credentials(), cache_discovery=False).users()
 
 
 def label_ids(svc, name: str) -> tuple[str, str]:
@@ -128,9 +125,20 @@ def strip_quote(s: str) -> str:
     return (s[:m.start()] if m else s).strip()
 
 
+def attachment_parts(msg: dict) -> list[dict]:
+    """Части письма с вложениями (filename, mimeType, body.attachmentId). Ничего не открываем и не запускаем."""
+    return [p for p in _parts(msg.get("payload", {})) if p.get("filename")]
+
+
 def attachments(msg: dict) -> list[str]:
-    """Имена вложений (ничего не открываем и не запускаем; скачивание в Drive позже, drive.py)."""
-    return [p["filename"] for p in _parts(msg.get("payload", {})) if p.get("filename")]
+    return [p["filename"] for p in attachment_parts(msg)]
+
+
+def attachment_bytes(svc, msg: dict, part: dict) -> bytes:
+    """Байты вложения. msg приходит только из incoming(), то есть из нашего треда SolarBG."""
+    data = part.get("body", {}).get("data") or svc.messages().attachments().get(
+        userId="me", messageId=msg["id"], id=part["body"]["attachmentId"]).execute()["data"]
+    return base64.urlsafe_b64decode(data + "==")
 
 
 def is_bounce(msg: dict) -> bool:

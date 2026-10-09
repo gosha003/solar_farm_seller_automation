@@ -10,7 +10,7 @@ import re
 from datetime import date
 from email.utils import parseaddr
 
-from solar_outreach import drafts, gmail_client as gmail, llm, notify, rules, sheets
+from solar_outreach import drafts, drive, gmail_client as gmail, llm, notify, rules, sheets
 
 ESCALATE = {"price_discussion", "counteroffer", "wants_call_or_meeting", "asks_who_are_you", "asks_for_docs_or_nda",
             "asks_money", "suspicious", "other"}
@@ -71,8 +71,20 @@ def reply_draft(st: dict, msg: dict, c: llm.Classification, did: str) -> dict:
             "нарушения правил": ", ".join(rules.violations(body, drafts.template(lang)["signature"]))}
 
 
-def process(api, sid, svc) -> dict:
-    """Обработать все новые входящие. Возвращает счётчики для лога/дайджеста."""
+def save_files(st: dict | None, msg: dict, svc) -> list[str]:
+    """Вложения в Drive (папка станции). Сбой Drive не роняет разбор письма: тогда только имена."""
+    names = gmail.attachments(msg)
+    if not names or not st:
+        return names
+    try:
+        return drive.save(drive.service(), svc, msg, st["id"])
+    except Exception as e:
+        return [f"{n} (Drive: {type(e).__name__})" for n in names]
+
+
+def process(api, sid, svc, auto: bool = False) -> dict:
+    """Обработать все новые входящие. auto (/auto on): черновик ответа без нарушений правил одобряется сам
+    (раздел 10), эскалации от этого не меняются. Возвращает счётчики для лога/дайджеста."""
     stations = {r["id"]: r for r in sheets.read(api, sid, "Станции")}
     dialogs = sheets.read(api, sid, "Диалоги")
     blacklist = sheets.read(api, sid, "Чёрный список")
@@ -101,7 +113,7 @@ def process(api, sid, svc) -> dict:
             continue
 
         body = gmail.text(msg)
-        files = gmail.attachments(msg)
+        files = save_files(st, msg, svc)
         try:
             c = llm.classify(body, st or {})
             category = decide(c.category, c.confidence, body)
@@ -121,7 +133,7 @@ def process(api, sid, svc) -> dict:
             if st:
                 st["статус переписки"], st["следующий шаг"] = "эскалация", f"решение владельца: {category}"
             notify.urgent(f"🚨 {sid_} · {category}\nОт: {frm}\n{summary}\n"
-                          + (f"Вложения (не открывались): {', '.join(files)}\n" if files else "")
+                          + (f"Вложения (не открывались):\n" + "\n".join(files) + "\n" if files else "")
                           + f"Тред: {thread_url(msg['threadId'])}\nДиалог на паузе до твоего решения.")
         elif category in CLOSE:
             stats["закрыто"] += 1
@@ -143,7 +155,10 @@ def process(api, sid, svc) -> dict:
                 except llm.LLMError as e:
                     notify.urgent(f"⚠️ {sid_}: не смог составить ответ ({e}). Тред: {thread_url(msg['threadId'])}")
                 else:
-                    d["tg сообщение"] = notify.send(_card(d, st, summary), notify.draft_buttons(d["id"]))
+                    if auto and not d["нарушения правил"]:
+                        d["статус"] = "одобрено"  # режим включает только владелец (/auto on); уйдёт в approval.main
+                    else:
+                        d["tg сообщение"] = notify.send(_card(d, st, summary), notify.draft_buttons(d["id"]))
                     new_drafts.append(d)
                     stats["черновиков"] += 1
                     st["статус переписки"] = "черновик ответа"

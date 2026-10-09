@@ -1,11 +1,10 @@
 """Google Sheets: единственный источник правды (раздел 6). Чтение и запись пачками."""
 import os
 
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from solar_outreach.config import update_env
-from solar_outreach.google_auth import SCOPES
+from solar_outreach.google_auth import credentials
 
 ITEMS = ["1 действующая", "2 капацитет", "3 док: земля", "3 док: разрешение за строеж", "3 док: договор присъединяване",
          "4 цена", "5 год ввода", "6 выработка/выручка", "7 режим продажи", "8 панели", "8 инверторы",
@@ -43,9 +42,7 @@ def format_requests(sheet_id: int) -> list[dict]:
 
 
 def service():
-    creds = Credentials(None, refresh_token=os.environ["GOOGLE_REFRESH_TOKEN"], token_uri="https://oauth2.googleapis.com/token",
-                        client_id=os.environ["GOOGLE_CLIENT_ID"], client_secret=os.environ["GOOGLE_CLIENT_SECRET"], scopes=SCOPES)
-    return build("sheets", "v4", credentials=creds, cache_discovery=False).spreadsheets()
+    return build("sheets", "v4", credentials=credentials(), cache_discovery=False).spreadsheets()
 
 
 def col(n: int) -> str:
