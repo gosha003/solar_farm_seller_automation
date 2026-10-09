@@ -10,6 +10,8 @@ Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
 ExecStart=__DIR__/.venv/bin/python -m solar_outreach.engine --daemon
 Restart=always
 RestartSec=30
+CPUWeight=500
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target
