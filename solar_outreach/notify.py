@@ -69,5 +69,15 @@ def answer_callback(callback_id: str, text: str = "") -> None:
         pass
 
 
+COMMANDS = {"stats": "статистика", "status": "карточка станции: /status S019", "queue": "ручная очередь",
+            "digest": "дайджест сейчас", "pause": "остановить отправку продавцам", "resume": "возобновить отправку",
+            "auto": "/auto on или /auto off", "blacklist": "больше не писать: /blacklist email"}
+
+
+def set_commands() -> None:
+    """Меню «/» в Telegram (setMyCommands): одноразово, вызывается из set_secrets."""
+    call("setMyCommands", commands=[{"command": c, "description": d} for c, d in COMMANDS.items()])
+
+
 def draft_buttons(draft_id: str) -> list[list[tuple[str, str]]]:
     return [[("✅ Одобрить", f"a:{draft_id}"), ("✏️ Править", f"e:{draft_id}"), ("⏭ Пропустить", f"s:{draft_id}")]]

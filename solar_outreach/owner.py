@@ -144,4 +144,7 @@ def command(text: str, c: Ctx, today: date) -> str:
         return f"⛔ {arg} в чёрном списке, больше не пишем."
     if cmd == "/status" and arg:
         return status(c, arg)
-    return HELP
+    hints = {"/auto": f"Сейчас режим {c.mode()}. Пришли /auto on или /auto off.",  # нажато из меню без параметра
+             "/status": "Пришли /status и id станции, например /status S019.",
+             "/blacklist": "Пришли /blacklist и email, телефон или домен."}
+    return hints.get(cmd, HELP)
