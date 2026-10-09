@@ -7,6 +7,11 @@ from pathlib import Path
 
 import yaml
 
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+
 PKG = Path(__file__).resolve().parent
 ROOT = PKG.parent
 
@@ -44,7 +49,22 @@ def single_run(name: str, stale_sec: int = 1800, wait: float = 0):
     ponytail: lock-файл на одной машине (VM); второй машине с тем же Sheet он не помешает."""
     lock = Path(tempfile.gettempdir()) / f"solar_outreach_{name}.lock"
     deadline = time.time() + wait
-    while True:
+    if fcntl:  # Linux (VM): flock снимает ядро, даже если процесс убит (systemd restart, OOM)
+        fd = os.open(lock, os.O_CREAT | os.O_RDWR)
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.time() >= deadline:
+                        raise Busy(f"{name}: уже идёт другой запуск, пропускаю")
+                    time.sleep(2)
+            yield
+        finally:
+            os.close(fd)
+        return
+    while True:  # Windows: lock-файл, зависший снимается по stale_sec
         if lock.exists() and time.time() - lock.stat().st_mtime > stale_sec:
             lock.unlink(missing_ok=True)  # упавший процесс не держит блокировку вечно
         try:
