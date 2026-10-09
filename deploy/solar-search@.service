@@ -9,3 +9,9 @@ Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
 # %i = web: плюс веб-поиск Claude (~$0.2), раз в сутки; sites: только площадки
 ExecStart=/bin/sh -c 'exec __DIR__/.venv/bin/python -m solar_outreach.search $( [ "%i" = web ] && echo --web )'
 TimeoutStartSec=3h
+# e2-micro: 1 ГБ RAM и доля CPU. Поиск уступает боту, иначе бот и SSH встают (так было 2026-10-08)
+Nice=19
+CPUWeight=10
+IOWeight=10
+MemoryHigh=350M
+MemoryMax=500M
