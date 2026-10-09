@@ -271,7 +271,8 @@ def main(test_n: int = 0) -> int:
         if total >= cfg["limits"]["approvals_before_auto_offer"] > total - approved and not auto:
             notify.send(f"{total} писем одобрено. Включить автоотправку? Пришли /auto on (выключить: /auto off).")
     sheets.set_kv(api, sid, "Настройки", {k: v for k, v in settings.items() if settings_before.get(k) != v})
-    print(f"обновлений черновиков: {len(changed)}, новых черновиков: {len(new)}, в ручную очередь: {len(queue)}")
+    if changed or new or queue:
+        print(f"обновлений черновиков: {len(changed)}, новых черновиков: {len(new)}, в ручную очередь: {len(queue)}")
     return int(state["tg_offset"] or 0)
 
 
