@@ -3,7 +3,7 @@
 Действия:
   info_provided / question_we_can_answer -> черновик ответа (недостающие пункты) на одобрение
   price_discussion ... suspicious, other, низкая уверенность -> СРОЧНО владельцу, диалог на паузу
-  not_interested_or_stop / sold -> чёрный список навсегда, диалог закрыт
+  not_interested_or_stop / sold -> вкладка «Отказы» (автоматически больше не пишем), диалог закрыт
   auto_reply -> ничего; broker_redirect -> новый контакт как новый продавец; bounce -> чёрный список + счётчик
 """
 import re
@@ -80,7 +80,7 @@ def process(api, sid, svc) -> dict:
     by_thread = {d["тред Gmail"]: d["id станции"] for d in dialogs if d["тред Gmail"]}
     by_email = {e.strip().lower(): s["id"] for s in stations.values() for e in s["email"].split(",") if e.strip()}
     before = {k: dict(v) for k, v in stations.items()}
-    new_dialogs, new_drafts, new_black, new_stations = [], [], [], []
+    new_dialogs, new_drafts, new_black, new_stations, new_refusals = [], [], [], [], []
     stats = {"входящих": 0, "эскалаций": 0, "черновиков": 0, "закрыто": 0, "bounce": 0}
 
     for msg in gmail.incoming(svc):
@@ -125,8 +125,9 @@ def process(api, sid, svc) -> dict:
                           + f"Тред: {thread_url(msg['threadId'])}\nДиалог на паузе до твоего решения.")
         elif category in CLOSE:
             stats["закрыто"] += 1
-            new_black.append({"контакт или домен": frm, "причина": category, "дата": date.today().isoformat()})
-            st["статус переписки"], st["следующий шаг"] = CLOSE[category], "не писать"
+            new_refusals.append({"контакт": frm, "id станции": sid_, "причина": "продано" if category == "sold" else "отказ",
+                                 "дата": date.today().isoformat(), "что написал": summary})
+            st["статус переписки"], st["следующий шаг"] = CLOSE[category], "не писать автоматически"
         elif category == "broker_redirect" and c.new_contact:
             new_stations.append({**{k: v for k, v in st.items() if k != "_row"}, "id": "", "email": c.new_contact
                                  if "@" in c.new_contact else "", "телефон": "" if "@" in c.new_contact else c.new_contact,
@@ -157,6 +158,7 @@ def process(api, sid, svc) -> dict:
     sheets.append(api, sid, "Диалоги", new_dialogs)
     sheets.append(api, sid, "Черновики", new_drafts)
     sheets.append(api, sid, "Чёрный список", new_black)
+    sheets.append(api, sid, "Отказы", new_refusals)
     if stats["bounce"]:
         state = sheets.kv(api, sid, "_state")
         key = f"bounce {date.today().isoformat()}"

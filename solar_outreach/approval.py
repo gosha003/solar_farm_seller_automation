@@ -126,6 +126,7 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         return []
     svc = gmail.service()
     blacklist = sheets.read(api, sid, "Чёрный список")
+    refused = {r["контакт"].lower().strip() for r in sheets.read(api, sid, "Отказы")}
     sent_first = {x["кому"].lower() for x in by_id.values() if x["тип"].startswith("первое") and x.get("тред Gmail")}
     out = []
     for i, d in enumerate(ds):
@@ -133,6 +134,10 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         if inbox.blacklisted(to, blacklist):
             d["статус"] = "чёрный список"
             notify.send(f"⛔ {d['id']}: {to} в чёрном списке, не отправлено.")
+            continue
+        if to.lower() in refused:
+            d["статус"] = "в отказах"
+            notify.send(f"⛔ {d['id']}: {to} в «Отказах» (просил не писать или продано), автоматически не отправляю.")
             continue
         if d["тип"].startswith("первое") and to.lower() in sent_first:
             d["статус"] = "дубль адреса"
