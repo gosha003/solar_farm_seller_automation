@@ -46,19 +46,24 @@ def card(d: dict, st: dict) -> str:
 
 
 def queue_row(d: dict, st: dict) -> dict:
-    row = {"id станции": d["id станции"], "канал": d["канал"], "ссылка на объявление": st["ссылка"],
-           "текст": d["текст"], "статус": "отправить вручную"}
+    email = "email" in d["канал"]
+    row = {"id станции": d["id станции"], "канал": f"{d['канал']}: {d['кому']}" if email else d["канал"],
+           "ссылка на объявление": st["ссылка"], "статус": "отправить вручную",
+           "текст": f"Тема: {d['тема']}\n\n{d['текст']}" if email and d.get("тема") else d["текст"]}
     if d["канал"].startswith("телефон"):
         row["WhatsApp"], row["Viber"] = drafts.manual_links(d["кому"].split(",")[0], d["текст"])
     return row
 
 
 def approve(d: dict, st: dict, queue: list) -> None:
-    """Одобрение (кнопкой или в режиме auto): email уйдёт при отправке, остальное в «Ручную очередь»."""
+    """Одобрение (кнопкой или в режиме auto): email уйдёт при отправке, остальное в «Ручную очередь».
+    DRY_RUN: email тоже в очередь, отправляет владелец сам; пометка «вручную» не даст системе отправить его позже."""
     d["статус"] = "одобрено"
     if "ТЕСТ" not in d["тип"]:
-        if d["канал"] != "email":
+        if d["канал"] != "email" or dry_run():
             queue.append(queue_row(d, st))
+            if d["канал"] == "email":
+                d["отправлено"] = "вручную"
         st["статус переписки"] = "одобрено, ждёт отправки"
 
 
@@ -94,8 +99,8 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                 approved += 1
                 notify.answer_callback(cq["id"], "Одобрено")
                 notify.send(f"✅ {did} одобрено." + (" Тест: никуда не отправляется." if "ТЕСТ" in d["тип"] else
-                            " Письмо уйдёт в ближайшем запуске." if d["канал"] == "email"
-                            else " Текст и ссылки во вкладке «Ручная очередь»."))
+                            " Письмо уйдёт в ближайшем запуске." if d["канал"] == "email" and not dry_run()
+                            else f" Текст во вкладке «Ручная очередь». Отправишь сам: /sent {d['id станции']}"))
             elif action == "s":
                 d["статус"] = "пропущено"
                 if "ТЕСТ" not in d["тип"]:
@@ -186,10 +191,8 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
             sent_first.add(to.lower())
         st = stations[d["id станции"]]
         st.update({"статус переписки": "ждём ответа", "последний контакт": today, "следующий шаг": "ждать ответа"})
-        if not d["тип"].startswith("дожим"):  # первое письмо спрашивает пункты 1-4, ответ: все оставшиеся
-            for item in sheets.ITEMS:
-                if st.get(item) == "не спрошено" and (not first or item.split()[0] in ("1", "2", "3", "4")):
-                    st[item] = "спрошено"
+        if not d["тип"].startswith("дожим"):
+            sheets.mark_asked(st, first)
         out.append({"id станции": d["id станции"], "направление": "out", "дата": today, "канал": "email",
                     "язык": d["язык"], "краткое содержание": f"{d['тип']}: {d['тема']}", "тред Gmail": res["threadId"]})
         if not quiet:
@@ -223,10 +226,14 @@ def main(test_n: int = 0) -> int:
     ctx = owner.Ctx(api, sid, cfg, stations, by_id, dialogs, settings, state)
 
     changed, queue, approved = handle_updates(state, stations, by_id, ctx)
+    changed.update({k: d for k, d in ctx.changed_drafts.items() if "_row" in d})  # /sent
     bounce_stop(ctx, by_id, today.isoformat())
     auto, paused = ctx.mode() == "auto", ctx.paused()
 
     new = []
+    for d in ctx.new_drafts:  # /note: черновик ответа после ответа продавца в WhatsApp/Viber
+        present(d, stations[d["id станции"]], auto, queue)
+        new.append(d)
     if not paused:  # на паузе новые письма не готовим, чтобы не копить кнопки
         drafted = {d["id станции"] for d in by_id.values()}
         real = [s for s in stations.values()
@@ -239,7 +246,7 @@ def main(test_n: int = 0) -> int:
                 st["статус переписки"] = "черновик"
             present(d, st, auto, queue)
             new.append(d)
-        for d in followup.due(stations, by_id, dialogs, cfg["limits"]["followup_days"], today):
+        for d in followup.due(stations, by_id, dialogs + ctx.new_dialogs, cfg["limits"]["followup_days"], today):
             d["id"] = f"D{len(by_id) + len(new) + 1:03d}"
             present(d, stations[d["id станции"]], auto, queue)
             new.append(d)
@@ -256,7 +263,8 @@ def main(test_n: int = 0) -> int:
         notify.urgent(owner.digest(ctx, today))  # Telegram, при сбое письмом [SOLAR]
         state["дайджест"] = owner.local_now(cfg).date().isoformat()
 
-    sheets.append(api, sid, "Диалоги", out_dialogs)
+    sheets.append(api, sid, "Диалоги", ctx.new_dialogs + out_dialogs)
+    sheets.append(api, sid, "Отказы", ctx.new_refusals)
     sheets.update(api, sid, "Черновики", list(changed.values()))
     sheets.append(api, sid, "Черновики", new)
     sheets.append(api, sid, "Ручная очередь", queue)

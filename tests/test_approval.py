@@ -129,3 +129,12 @@ def test_bounce_stop_switches_to_manual(monkeypatch, tg):
     c.settings["approval_mode"], c.state["bounce 2026-10-08"] = "auto", "1"
     approval.bounce_stop(c, by_id, "2026-10-08")
     assert c.mode() == "auto"                                           # ровно 10%: не выше порога
+
+
+def test_dry_run_email_goes_to_manual_queue_and_never_auto_sent(monkeypatch, tg):
+    monkeypatch.setenv("DRY_RUN", "true")
+    d, st, queue = approval.make_draft(EMAIL_ST, "D020", test=False), dict(EMAIL_ST), []
+    approval.approve(d, st, queue)
+    assert queue[0]["канал"] == "email: s@abv.bg" and queue[0]["текст"].startswith("Тема: ")
+    monkeypatch.setenv("DRY_RUN", "false")
+    assert approval.to_send({"D020": d}) == []                       # позже система его не отправит

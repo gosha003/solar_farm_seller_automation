@@ -61,3 +61,33 @@ def test_digest_reminds_about_trial_end(monkeypatch):
     c.cfg = {**CFG, "gcp": {"trial_ends": date(2027, 1, 7)}}
     assert "Free Trial" not in owner.digest(c, date(2026, 12, 20))
     assert "Activate full account" in owner.digest(c, date(2026, 12, 25))
+
+
+def test_sent_marks_manual_message_and_queue(monkeypatch):
+    c = ctx(monkeypatch)
+    updated = []
+    monkeypatch.setattr(owner.sheets, "read", lambda api, sid, tab: [{"id станции": "S019", "статус": "отправить вручную", "_row": 2}])
+    monkeypatch.setattr(owner.sheets, "update", lambda api, sid, tab, rows: updated.extend(rows))
+    c.stations["S019"].update({i: "не спрошено" for i in sheets.ITEMS}, **{"статус переписки": "одобрено, ждёт отправки"})
+    c.by_id["D002"] = {"id": "D002", "id станции": "S019", "тип": "первое", "статус": "одобрено", "отправлено": "",
+                       "канал": "сайт (ручная)", "язык": "bg", "_row": 3}
+    assert "отмечено отправленным (D002)" in owner.command("/sent s019", c, DAY)
+    st = c.stations["S019"]
+    assert st["статус переписки"] == "ждём ответа" and st["1 действующая"] == "спрошено" and st["5 год ввода"] == "не спрошено"
+    assert c.changed_drafts["D002"]["отправлено"] == "2026-10-08" and updated[0]["статус"] == "отправлено вручную"
+    assert "нет одобренных" in owner.command("/sent S019", c, DAY)
+
+
+def test_note_extracts_facts_and_escalates(monkeypatch):
+    c = ctx(monkeypatch)
+    cl = owner.llm.Classification(category="info_provided", language="bg", summary_ru="работает с 2020", seller_questions=[],
+                                  new_contact="", confidence="high",
+                                  facts=[owner.llm.Fact(item="5 год ввода", answer="2020", refused=False)])
+    monkeypatch.setattr(owner.llm, "classify", lambda text, st: cl)
+    monkeypatch.setattr(owner.inbox, "reply_body", lambda st, c: "Благодаря")
+    out = owner.command("/note S019 Работи от 2020\nцена по договаряне", c, DAY)
+    assert "5 год ввода" in out and c.stations["S019"]["5 год ввода"] == "получен: 2020"
+    assert c.new_dialogs[0]["направление"] == "in" and c.new_drafts[0]["канал"] == "email (вручную)"
+    cl.category = "price_discussion"
+    assert "🚨" in owner.command("/note S019 Може и по-евтино", c, DAY)
+    assert c.stations["S019"]["статус переписки"] == "эскалация"
