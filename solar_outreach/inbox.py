@@ -23,6 +23,7 @@ INJECTION = re.compile(
     r"|системн\w* (промпт|инструкц)|изпратете (ни )?(парола|данни за карта)|перейд\w* по ссылк|кликн\w* (на|по) (линк|ссылк)",
     re.I)
 ALO = re.compile(r"@([\w-]+\.)*alo\.bg$")  # уведомления alo.bg об ответах продавцов (ответить можно только на сайте)
+ALO_NOTICE = re.compile(r"ново съобщение|new message", re.I)  # в письме alo только ссылка, текст ответа лежит в кабинете
 GREETING = {"bg": "Здравейте,", "en": "Hello,", "ru": "Здравствуйте,"}
 
 
@@ -145,6 +146,18 @@ def process(api, sid, svc, auto: bool = False) -> dict:
         body = gmail.text(msg)
         if not st and ALO.search(frm):
             st = station_by_ad(stations, f"{gmail.header(msg, 'Subject')} {body}")
+        if ALO.search(frm) and (st is None or ALO_NOTICE.search(body)):
+            if ALO_NOTICE.search(body):
+                where = st["id"] if st else "станцию не определил"
+                notify.send(f"📨 Ответ на alo.bg ({where}), в письме текста нет. Читаю в кабинете alo: нужен включённый ПК "
+                            "с открытым Chrome. Если не прочитается, открой https://www.alo.bg/user_messages.php сам.")
+                if st:
+                    st["статус переписки"], st["следующий шаг"] = "ответ на alo", "прочитать в кабинете alo (alo_reply.py)"
+                    new_dialogs.append({"id станции": st["id"], "направление": "in", "дата": date.today().isoformat(),
+                                        "канал": "alo.bg", "язык": "", "краткое содержание": "[ответ на alo] уведомление без текста",
+                                        "тред Gmail": msg["threadId"]})
+            gmail.mark_done(svc, msg)  # остальное от alo (регистрация, вход через Google) не диалог
+            continue
         files = save_files(st, msg, svc)
         try:
             c = llm.classify(body, st or {})
