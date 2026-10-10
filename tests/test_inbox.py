@@ -37,3 +37,11 @@ def test_facts_go_to_items_and_qualification():
     for i in sheets.ITEMS:
         st[i] = "получен: x"
     assert inbox.missing_items(st) == []
+
+
+def test_alo_notification_is_matched_to_station_by_ad_number():
+    stations = {"S020": {"ссылка": "https://www.alo.bg/fotovoltaichna-centrala-1-5mw-10983881"},
+                "S021": {"ссылка": "https://www.alo.bg/prodava-fotovoltaichna-centrala-10522589"}}
+    assert inbox.station_by_ad(stations, "Нов отговор на обява 10522589: Здравейте") is stations["S021"]
+    assert inbox.station_by_ad(stations, "обява 99999999") is None
+    assert inbox.ALO.search("noreply@alo.bg") and inbox.ALO.search("x@mail.alo.bg") and not inbox.ALO.search("x@malo.bg.evil.com")

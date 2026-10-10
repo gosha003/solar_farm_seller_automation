@@ -22,6 +22,7 @@ INJECTION = re.compile(
     r"bank|card|passport|data)|игнорир\w* (все |всички )?(предыдущ|предишн|правил|инструкц)|забудь\w* (все )?(правил|инструкц)"
     r"|системн\w* (промпт|инструкц)|изпратете (ни )?(парола|данни за карта)|перейд\w* по ссылк|кликн\w* (на|по) (линк|ссылк)",
     re.I)
+ALO = re.compile(r"@([\w-]+\.)*alo\.bg$")  # уведомления alo.bg об ответах продавцов (ответить можно только на сайте)
 GREETING = {"bg": "Здравейте,", "en": "Hello,", "ru": "Здравствуйте,"}
 
 
@@ -30,6 +31,13 @@ def blacklisted(contact: str, blacklist: list[dict]) -> bool:
     domain = c.split("@")[-1] if "@" in c else ""
     entries = {b["контакт или домен"].lower().strip() for b in blacklist}
     return c in entries or bool(domain) and domain in entries
+
+
+def station_by_ad(stations: dict, text: str) -> dict | None:
+    """Станция по номеру объявления из текста письма: ссылки alo/bazar оканчиваются на номер."""
+    ids = set(re.findall(r"\d{7,9}", text))
+    hits = [s for s in stations.values() if ids & set(re.findall(r"\d{7,9}$", s["ссылка"].rstrip("/").split(".html")[0]))]
+    return hits[0] if len(hits) == 1 else None
 
 
 def thread_url(thread_id: str) -> str:
@@ -128,6 +136,8 @@ def process(api, sid, svc, auto: bool = False) -> dict:
             continue
 
         body = gmail.text(msg)
+        if not st and ALO.search(frm):
+            st = station_by_ad(stations, f"{gmail.header(msg, 'Subject')} {body}")
         files = save_files(st, msg, svc)
         try:
             c = llm.classify(body, st or {})
@@ -165,12 +175,14 @@ def process(api, sid, svc, auto: bool = False) -> dict:
                 st["статус переписки"] = "квалифицирована"
                 notify.urgent(f"✅ {sid_} полностью квалифицирована: все пункты раздела 3 получены.\n{st['ссылка']}")
             else:
+                manual = bool(ALO.search(frm))  # на noreply@alo.bg не ответить: текст владельцу, отправляет сам на сайте
                 try:
-                    d = reply_draft(st, msg, c, f"D{n_drafts + len(new_drafts) + 1:03d}")
+                    did = f"D{n_drafts + len(new_drafts) + 1:03d}"
+                    d = manual_reply_draft(st, c, did) if manual else reply_draft(st, msg, c, did)
                 except llm.LLMError as e:
                     notify.urgent(f"⚠️ {sid_}: не смог составить ответ ({e}). Тред: {thread_url(msg['threadId'])}")
                 else:
-                    if auto and not d["нарушения правил"]:
+                    if auto and not d["нарушения правил"] and not manual:
                         d["статус"] = "одобрено"  # режим включает только владелец (/auto on); уйдёт в approval.main
                     else:
                         d["tg сообщение"] = notify.send(_card(d, st, summary), notify.draft_buttons(d["id"]))
