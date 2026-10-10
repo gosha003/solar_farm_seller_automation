@@ -64,7 +64,10 @@ def first(row: dict, lang: str) -> tuple[str, str]:
     desc, ref = description(row, lang)
     intro = t["first"]["intro_private"].format(description=desc)
     extra = f"{t['first']['broker_extra']}\n\n" if is_broker(row) else ""
-    body = f"{intro}\n{numbered(t['first']['questions'])}\n\n{extra}{t['first']['outro']}\n\n{t['signature']}"
+    questions = t["first"]["questions"]
+    if str(row.get("цена EUR", "")).replace(".", "").isdigit():
+        questions = questions[:-1]  # цена уже в объявлении; в шаблонах вопрос про цену всегда последний
+    body = f"{intro}\n{numbered(questions)}\n\n{extra}{t['first']['outro']}\n\n{t['signature']}"
     return t["first"]["subject"].format(ref=ref), body
 
 
