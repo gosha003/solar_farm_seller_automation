@@ -2,6 +2,7 @@
 
     python -m solar_outreach.alo_reply pending                  # станции со статусом «ответ на alo»
     python -m solar_outreach.alo_reply note S020 "<текст>"      # разобрать текст как /note, снять пометку
+    python -m solar_outreach.alo_reply note S020 @файл.txt      # то же, текст из файла UTF-8
 
 Читает кабинет не бот на VM (вход в alo только через Google/reCAPTCHA), а Claude в Chrome по расписанию на ПК владельца.
 """
@@ -50,6 +51,9 @@ if __name__ == "__main__":
             print(s["id"], s["ссылка"], "|", s["продавец"])
     elif sys.argv[1:2] == ["note"] and len(sys.argv) == 4:
         with single_run("sheet", stale_sec=3600, wait=300):
-            print(note(api, sid, sys.argv[2], sys.argv[3]))
+            text = sys.argv[3]
+            if text.startswith("@"):
+                text = open(text[1:], encoding="utf-8").read().strip()
+            print(note(api, sid, sys.argv[2], text))
     else:
         sys.exit(__doc__)
