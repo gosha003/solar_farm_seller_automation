@@ -1,5 +1,6 @@
 """Google Sheets: единственный источник правды (раздел 6). Чтение и запись пачками."""
 import os
+from functools import cache
 
 from googleapiclient.discovery import build
 
@@ -50,6 +51,7 @@ def format_requests(sheet_id: int) -> list[dict]:
                         "format": {"backgroundColor": color}}}}} for status, color in STATUS_COLORS.items()]
 
 
+@cache  # один клиент на процесс: build() на каждый проход демона течёт (1.5 ГБ за сутки)
 def service():
     return build("sheets", "v4", credentials=credentials(), cache_discovery=False).spreadsheets()
 

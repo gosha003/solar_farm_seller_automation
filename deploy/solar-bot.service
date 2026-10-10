@@ -12,6 +12,10 @@ Restart=always
 RestartSec=30
 CPUWeight=500
 OOMScoreAdjust=-500
+# страховка от утечек: при 400 МБ systemd убьёт и перезапустит бот (flock снимется сам)
+MemoryHigh=300M
+MemoryMax=400M
+MemorySwapMax=100M
 
 [Install]
 WantedBy=multi-user.target
