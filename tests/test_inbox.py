@@ -51,3 +51,8 @@ def test_alo_notification_is_matched_to_station_by_ad_number():
     assert inbox.station_by_ad(waiting, "Нов отговор: Запитване по Продава фотоволтаична централа") is waiting["S021"]
     assert inbox.station_by_ad(waiting, "Съобщение от MGroup23 Real Estate") is waiting["S020"]
     assert inbox.ALO.search("noreply@alo.bg") and inbox.ALO.search("x@mail.alo.bg") and not inbox.ALO.search("x@malo.bg.evil.com")
+
+
+def test_alo_notice_without_text_is_detected():
+    assert inbox.ALO_NOTICE.search("Здравей ivan, Имате ново съобщение от seller123. Виж съобщението")
+    assert not inbox.ALO_NOTICE.search("Вие се регистрирахте успешно в alo.bg")
