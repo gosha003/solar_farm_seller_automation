@@ -44,4 +44,10 @@ def test_alo_notification_is_matched_to_station_by_ad_number():
                 "S021": {"ссылка": "https://www.alo.bg/prodava-fotovoltaichna-centrala-10000002"}}
     assert inbox.station_by_ad(stations, "Нов отговор на обява 10000002: Здравейте") is stations["S021"]
     assert inbox.station_by_ad(stations, "обява 99999999") is None
+    waiting = {"S020": {**stations["S020"], "статус переписки": "ждём ответа", "заголовок": "Фотоволтаична централа 1.5MW",
+                        "продавец": "Primer Real Estate"},
+               "S021": {**stations["S021"], "статус переписки": "ждём ответа", "заголовок": "Продава фотоволтаична централа",
+                        "продавец": "seller_ab12"}}
+    assert inbox.station_by_ad(waiting, "Нов отговор: Запитване по Продава фотоволтаична централа") is waiting["S021"]
+    assert inbox.station_by_ad(waiting, "Съобщение от Primer Real Estate") is waiting["S020"]
     assert inbox.ALO.search("noreply@alo.bg") and inbox.ALO.search("x@mail.alo.bg") and not inbox.ALO.search("x@malo.bg.evil.com")
