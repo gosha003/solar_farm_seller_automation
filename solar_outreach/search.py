@@ -15,7 +15,7 @@ from solar_outreach import parse, sheets
 from solar_outreach.config import load_config, single_run
 from solar_outreach.contacts import channel
 from solar_outreach.qualify import qualify
-from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, is_station_sale, kpd, web
+from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, imot, is_station_sale, kpd, web
 
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
 ORDER = {"A": 0, "B": 1, "C": 2, "-": 3}
@@ -85,7 +85,7 @@ def main(local: bool, use_web: bool = False) -> None:
             seen |= keys(r)
 
     new, failed = [], dict(UNAVAILABLE)
-    for name, src in {**SOURCES, **({"web": web} if use_web else {})}.items():
+    for name, src in {**SOURCES, **({"web": web, "imot.bg": imot} if use_web else {})}.items():
         try:
             for l in listings(name, src, fetch, {k[1] for k in seen if k[0] == "url"}, cfg["criteria"]):
                 row = to_row(l, cfg)
