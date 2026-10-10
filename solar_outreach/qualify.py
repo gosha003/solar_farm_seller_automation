@@ -1,25 +1,22 @@
 """Отбор и скоринг по criteria из config.yaml (раздел 2 ТЗ).
 
-verdict: «кандидат» / «вне диапазона» (писать с пометкой) / «мелкая», «крупная», «дорого» (не писать).
-Неизвестная мощность = «кандидат» с приоритетом C: размер выясним в переписке.
+verdict: «кандидат» (мощность известна и в min_kwp..max_kwp) / «мелкая», «крупная», «дорого», «мощность неизвестна» (не писать).
+Владелец 2026-10-10: карточки только по станциям 1-2 МВт с подтверждённой мощностью, без мягких границ и без «выясним в переписке».
 """
 from solar_outreach import parse
 
-WRITE = {"кандидат", "вне диапазона"}
+WRITE = {"кандидат"}
 
 
 def qualify(kw: float | None, eur: float | None, text: str, yr: int | None, regime: str, c: dict) -> dict:
     p = c["price_per_kwp_eur"]
     notes, score = [], 0
     if kw is None:
-        verdict = "кандидат"
-        notes.append("мощность неизвестна")
+        verdict = "мощность неизвестна"
     elif c["min_kwp"] <= kw <= c["max_kwp"]:
         verdict, score = "кандидат", 40
-    elif c["soft_min_kwp"] <= kw <= c["soft_max_kwp"]:
-        verdict, score = "вне диапазона", 25
     else:
-        verdict = "мелкая" if kw < c["soft_min_kwp"] else "крупная"
+        verdict = "мелкая" if kw < c["min_kwp"] else "крупная"
 
     per_kw = round(eur / kw) if eur and kw else None
     if per_kw is not None:
@@ -44,8 +41,6 @@ def qualify(kw: float | None, eur: float | None, text: str, yr: int | None, regi
         score += 5
     if verdict not in WRITE:
         priority = "-"
-    elif kw is None or verdict == "вне диапазона":
-        priority = "C" if score < 50 else "B"
     else:
         priority = "A" if score >= 70 else "B" if score >= 45 else "C"
     return {"verdict": verdict, "score": score, "priority": priority, "eur_per_kw": per_kw, "notes": notes}
