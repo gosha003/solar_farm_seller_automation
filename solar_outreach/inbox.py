@@ -37,6 +37,13 @@ def station_by_ad(stations: dict, text: str) -> dict | None:
     """Станция по номеру объявления из текста письма: ссылки alo/bazar оканчиваются на номер."""
     ids = set(re.findall(r"\d{7,9}", text))
     hits = [s for s in stations.values() if ids & set(re.findall(r"\d{7,9}$", s["ссылка"].rstrip("/").split(".html")[0]))]
+    if len(hits) != 1:  # номера нет в письме: заголовок объявления (alo ставит его в тему диалога), потом имя продавца
+        low = text.lower()
+        waiting = [s for s in stations.values() if s.get("статус переписки") == "ждём ответа"]
+        for field in ("заголовок", "продавец"):
+            hits = [s for s in waiting if len(s.get(field, "")) > 8 and s[field].lower() in low]
+            if len(hits) == 1:
+                break
     return hits[0] if len(hits) == 1 else None
 
 
