@@ -67,12 +67,20 @@ def approve(d: dict, st: dict, queue: list) -> None:
         st["статус переписки"] = "одобрено, ждёт отправки"
 
 
+def site_hint(d: dict, st: dict) -> None:
+    """Канал «сайт» (alo.bg): ссылка и чистый текст двумя сообщениями, текст копируется одним тапом."""
+    if d["канал"].startswith("сайт") and "ТЕСТ" not in d["тип"]:
+        notify.send(f"{d['id станции']}: открой объявление, вставь текст из следующего сообщения\n{st['ссылка']}")
+        notify.send(d["текст"])
+
+
 def present(d: dict, st: dict, auto: bool, queue: list) -> None:
     """Новый черновик: в режиме auto без нарушений правил одобряется сам, иначе карточка с кнопками владельцу."""
     if auto and not d["нарушения правил"] and "ТЕСТ" not in d["тип"]:
         approve(d, st, queue)
         if d["канал"] != "email":
             notify.send(f"📱 {d['id']} · {d['id станции']}: отправь вручную, текст и ссылки во вкладке «Ручная очередь».")
+            site_hint(d, st)
     else:
         d["tg сообщение"] = notify.send(card(d, st), notify.draft_buttons(d["id"]))
 
@@ -101,6 +109,7 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                 notify.send(f"✅ {did} одобрено." + (" Тест: никуда не отправляется." if "ТЕСТ" in d["тип"] else
                             " Письмо уйдёт в ближайшем запуске." if d["канал"] == "email" and not dry_run()
                             else f" Текст во вкладке «Ручная очередь». Отправишь сам: /sent {d['id станции']}"))
+                site_hint(d, st)
             elif action == "s":
                 d["статус"] = "пропущено"
                 if "ТЕСТ" not in d["тип"]:
