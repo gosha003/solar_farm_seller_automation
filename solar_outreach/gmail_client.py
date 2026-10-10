@@ -6,6 +6,7 @@
 import base64
 import os
 import re
+from functools import cache
 from email.headerregistry import Address
 from email.message import EmailMessage
 from email.utils import make_msgid, parseaddr
@@ -19,6 +20,7 @@ from solar_outreach.google_auth import credentials
 DONE_SUFFIX = "/обработано"
 
 
+@cache  # один клиент на процесс: build() на каждый проход демона течёт (1.5 ГБ за сутки)
 def service():
     return build("gmail", "v1", credentials=credentials(), cache_discovery=False).users()
 

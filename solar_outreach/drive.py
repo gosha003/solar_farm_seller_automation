@@ -5,6 +5,7 @@ scope drive.file: система видит в Drive только то, что �
 ponytail: текст из вложений не извлекается (раздел 4 разрешает безопасный парсер); добавить, когда понадобится
 автоматически читать документы, а не только хранить их для владельца.
 """
+from functools import cache
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
@@ -17,6 +18,7 @@ ALLOWED = {".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-o
            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".heic": "image/heic", ".webp": "image/webp"}
 
 
+@cache  # один клиент на процесс: build() на каждый проход демона течёт (1.5 ГБ за сутки)
 def service():
     return build("drive", "v3", credentials=credentials(), cache_discovery=False).files()
 
