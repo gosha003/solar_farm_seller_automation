@@ -57,7 +57,7 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
         if url in known_urls or not is_station_sale(title):
             continue
         kw = parse.power_kw(title, "")
-        if kw is not None and not crit["soft_min_kwp"] <= kw <= crit["soft_max_kwp"]:
+        if kw is not None and not crit["min_kwp"] <= kw <= crit["max_kwp"]:
             yield Listing(name, url, title, extra={"title_only": True})
             continue
         try:
@@ -132,7 +132,7 @@ def number(new: list[dict], existing: list[dict]) -> None:
 def settings(cfg: dict) -> list[list]:
     c = cfg["criteria"]
     return [["approval_mode", cfg["approval_mode"]], ["одобрено писем", 0],
-            ["мощность кВт", f"{c['min_kwp']}-{c['max_kwp']} (мягко {c['soft_min_kwp']}-{c['soft_max_kwp']})"],
+            ["мощность кВт", f"{c['min_kwp']}-{c['max_kwp']}"],
             ["EUR/кВт предпочт.", "-".join(map(str, c["price_per_kwp_eur"]["preferred"]))],
             ["EUR/кВт не писать выше", c["price_per_kwp_eur"]["skip_above"]],
             ["новых писем в сутки", cfg["limits"]["new_per_day"]]]

@@ -19,7 +19,7 @@ def test_owner_facts_are_plain_strings():
 
 def test_criteria_ranges_are_consistent():
     c = load_config()["criteria"]
-    assert c["soft_min_kwp"] <= c["min_kwp"] < c["max_kwp"] <= c["soft_max_kwp"]
+    assert c["min_kwp"] < c["max_kwp"]
     p = c["price_per_kwp_eur"]
     assert (p["suspicious_below"] <= p["acceptable"][0] <= p["preferred"][0]
             <= p["preferred"][1] <= p["acceptable"][1] < p["skip_above"])

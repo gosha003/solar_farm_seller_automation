@@ -20,8 +20,6 @@ owner:                         # раздел 1: в письмах можно и
 criteria:                      # раздел 2
   min_kwp: 1000
   max_kwp: 2000
-  soft_min_kwp: 900            # 900-1000 и 2000-2200: писать, пометить «вне диапазона»
-  soft_max_kwp: 2200
   price_per_kwp_eur:
     preferred: [800, 900]
     acceptable: [700, 1000]
