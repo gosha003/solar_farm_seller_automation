@@ -31,7 +31,7 @@ def violations(text: str, signature: str) -> list[str]:
     out = [name for name, rx in CHECKS if rx.search(text)]
     phones = [d for d in (re.sub(r"\D", "", p) for p in PHONE.findall(text)) if len(d) >= 9]  # даты «08.10.2026» не телефоны
     if any(d != ALLOWED_PHONE for d in phones):
-        out.append("чужой номер телефона")  # продавцам только +359 88 000 0000
+        out.append("чужой номер телефона")  # продавцам только +359 88 000 0000 (номер WhatsApp владельца)
     if signature.strip() not in text:
         out.append("нет подписи")
     return out
