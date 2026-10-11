@@ -3,6 +3,7 @@
     python -m solar_outreach.search            # пишет в Google Sheet (создаёт при первом запуске)
     python -m solar_outreach.search --local    # только печать, без Sheets
     python -m solar_outreach.search --web      # плюс веб-поиск через Claude (платно, раз в сутки)
+    python -m solar_outreach.search --only imot.bg   # только imot.bg: с VM он даёт 403, запускается на ПК владельца
 """
 import os
 import re
@@ -70,7 +71,7 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
             yield src.parse_ad(url, html)
 
 
-def main(local: bool, use_web: bool = False) -> None:
+def main(local: bool, use_web: bool = False, only: str = "") -> None:
     cfg = load_config()
     s = cfg["scraping"]
     fetch = Fetcher(s["user_agent"], tuple(s["delay_sec"]), s.get("host_delay_sec"))
@@ -85,7 +86,8 @@ def main(local: bool, use_web: bool = False) -> None:
             seen |= keys(r)
 
     new, failed = [], dict(UNAVAILABLE)
-    for name, src in {**SOURCES, **({"web": web, "imot.bg": imot} if use_web else {})}.items():
+    active = {"imot.bg": imot} if only == "imot.bg" else {**SOURCES, **({"web": web} if use_web else {})}
+    for name, src in active.items():
         try:
             for l in listings(name, src, fetch, {k[1] for k in seen if k[0] == "url"}, cfg["criteria"]):
                 row = to_row(l, cfg)
@@ -139,4 +141,4 @@ def settings(cfg: dict) -> list[list]:
 
 
 if __name__ == "__main__":
-    main("--local" in sys.argv, "--web" in sys.argv)
+    main("--local" in sys.argv, "--web" in sys.argv, sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else "")
