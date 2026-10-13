@@ -4,12 +4,14 @@
     python -m solar_outreach.search --local    # только печать, без Sheets
     python -m solar_outreach.search --web      # плюс веб-поиск через Claude (платно, раз в сутки)
     python -m solar_outreach.search --only imot.bg   # только imot.bg: с VM он даёт 403, запускается на ПК владельца
+    python -m solar_outreach.search --regions  # веб-поиск отдельно по областям Монтана, Видин, Добрич, Шумен, Ямбол, Хасково, Кърджали (платно)
     python -m solar_outreach.search --brokers  # только поиск брокеров (платно, раз в неделю), строки «брокер:сайт»
 """
 import os
 import re
 import sys
 from datetime import date
+from types import SimpleNamespace
 
 import requests
 
@@ -95,7 +97,7 @@ def find_brokers(fetch, seen: set) -> list[dict]:
     return out
 
 
-def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: bool = False) -> None:
+def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: bool = False, regions: bool = False) -> None:
     cfg = load_config()
     s = cfg["scraping"]
     fetch = Fetcher(s["user_agent"], tuple(s["delay_sec"]), s.get("host_delay_sec"))
@@ -110,7 +112,9 @@ def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: b
             seen |= keys(r)
 
     new, failed = [], dict(UNAVAILABLE)
-    active = {} if find_brokers_too else {"imot.bg": imot} if only == "imot.bg" else {**SOURCES, **({"web": web} if use_web else {})}
+    by_region = SimpleNamespace(links=web.regional_links, parse_ad=web.parse_ad)
+    active = ({} if find_brokers_too else {"web": by_region} if regions else {"imot.bg": imot} if only == "imot.bg"
+              else {**SOURCES, **({"web": web} if use_web else {})})
     if find_brokers_too:  # отдельный запуск раз в неделю: только брокеры
         try:
             new += find_brokers(fetch, seen)
@@ -172,4 +176,4 @@ def settings(cfg: dict) -> list[list]:
 
 if __name__ == "__main__":
     main("--local" in sys.argv, "--web" in sys.argv, sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else "",
-         "--brokers" in sys.argv)
+         "--brokers" in sys.argv, "--regions" in sys.argv)
