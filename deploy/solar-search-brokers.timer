@@ -1,0 +1,10 @@
+[Unit]
+Description=Поиск брокеров раз в неделю
+
+[Timer]
+OnCalendar=Mon *-*-* 06:41
+Persistent=true
+Unit=solar-search@brokers.service
+
+[Install]
+WantedBy=timers.target

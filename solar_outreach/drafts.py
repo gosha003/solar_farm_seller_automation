@@ -28,8 +28,15 @@ def language(text: str) -> str:
     return "ru" if re.search(r"[ыэёЫЭЁ]", text) else "bg"
 
 
+def is_general(row: dict) -> bool:
+    """Брокер, найденный поиском, а не по объявлению: письмо без «Видях Вашата обява», цена спрашивается всегда."""
+    return row.get("площадка", "").startswith("broker:")
+
+
 def is_broker(row: dict) -> bool:
     src = row.get("площадка", "")
+    if is_general(row):
+        return True
     web_agency = src.startswith("web:") and not src.endswith(CLASSIFIEDS)
     return web_agency or bool(BROKER.search(row.get("продавец", "")))
 
@@ -61,6 +68,9 @@ def numbered(items: list[str]) -> str:
 
 def first(row: dict, lang: str) -> tuple[str, str]:
     t = template(lang)
+    if is_general(row):
+        g = t["first"]["general"]
+        return g["subject"], f"{g['intro']}\n{numbered(g['questions'])}\n\n{g['terms']}\n\n{t['first']['outro']}\n\n{t['signature']}"
     desc, ref = description(row, lang)
     intro = t["first"]["intro_private"].format(description=desc)
     extra = f"{t['first']['broker_extra']}\n\n" if is_broker(row) else ""
@@ -80,9 +90,9 @@ def second(row: dict, lang: str) -> str:
     return f"{t['intro']}\n{numbered(qs)}\n\n{t['outro']}\n\n{template(lang)['signature']}"
 
 
-def followup(lang: str, date: str) -> str:
+def followup(lang: str, date: str, general: bool = False) -> str:
     t = template(lang)
-    return f"{t['followup']['body'].format(date=date)}\n\n{t['signature']}"
+    return f"{t['followup']['body_general' if general else 'body'].format(date=date)}\n\n{t['signature']}"
 
 
 def manual_links(phone: str, text: str) -> tuple[str, str]:

@@ -32,3 +32,10 @@ def test_pause_turn_continues():
         block("web_search_tool_result", content=[SimpleNamespace(url="https://a.bg/1", title="t")])])
     second = SimpleNamespace(stop_reason="end_turn", content=[block("text", text="https://a.bg/1 | 1.2 MW")])
     assert web.search_results(fake_client([first, second]), CFG) == {"https://a.bg/1": "t 1.2 MW"}
+
+
+def test_broker_contacts_from_page_and_mailto():
+    from solar_outreach.sources import brokers
+    html = ('<a href="mailto:office@agency.bg">писмо</a><p>тел. 0888 123 456</p><a href="/kontakti">Контакти</a>')
+    emails, phones, page = brokers.contacts(html)
+    assert emails == ["office@agency.bg"] and phones == ["+359888123456"] and page == "/kontakti"
