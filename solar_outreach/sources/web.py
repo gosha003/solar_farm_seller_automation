@@ -59,6 +59,19 @@ def links(fetch) -> dict[str, str]:
     return {u: t for u, t in found.items() if not urlparse(u).netloc.endswith(SKIP_HOSTS)}
 
 
+REGIONS = ("Монтана", "Видин", "Добрич", "Шумен", "Ямбол", "Хасково", "Кърджали")  # общий запрос их не находит
+
+
+def regional_links(fetch) -> dict[str, str]:
+    """Тот же поиск, но отдельным запросом на каждую область: python -m solar_outreach.search --regions."""
+    cfg, client, found = load_config(), anthropic.Anthropic(), {}
+    for region in REGIONS:
+        prompt = PROMPT + (f'\nSearch ONLY listings located in {region} province (област {region}). Put "{region}" in '
+                           f'every query, e.g. "продава ФЕЦ {region}", "фотоволтаична централа {region} 1 MW".')
+        found.update(search_results(client, cfg, prompt))
+    return {u: t for u, t in found.items() if not urlparse(u).netloc.endswith(SKIP_HOSTS)}
+
+
 def parse_ad(url: str, html: str) -> Listing:
     """Наши площадки разбираем их парсером; чужой сайт: заголовок и видимый текст страницы."""
     host = urlparse(url).netloc
