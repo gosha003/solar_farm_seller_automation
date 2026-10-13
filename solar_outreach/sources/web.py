@@ -23,10 +23,10 @@ OWN = {"bazar.bg": bazar, "www.alo.bg": alo, "alo.bg": alo, "www.kpd.bg": kpd}
 SKIP_HOSTS = ("olx.bg", "facebook.com", "youtube.com", "linkedin.com", "instagram.com", "tiktok.com")
 
 
-def search_results(client, cfg) -> dict[str, str]:
-    """{url: описание модели} для объявлений, которые модель отобрала. URL принимаем только если он был
+def search_results(client, cfg, prompt: str = PROMPT, tool: str = "web_search_20260209") -> dict[str, str]:
+    """{url: описание модели} для страниц, которые модель отобрала. URL принимаем только если он был
     в реальных результатах web_search (защита от выдуманных ссылок). pause_turn: продолжаем ход (до 3 раз)."""
-    messages = [{"role": "user", "content": PROMPT}]
+    messages = [{"role": "user", "content": prompt}]
     found, answer = {}, ""
     for _ in range(3):
         r = client.beta.messages.create(
@@ -34,7 +34,7 @@ def search_results(client, cfg) -> dict[str, str]:
             betas=["server-side-fallback-2026-07-01"], fallbacks="default",  # отказ модели -> сервер повторит на другой
             output_config={"effort": "medium"},
             # user_location с country=BG API не принимает (400); болгарские запросы и так находят .bg
-            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 10}],
+            tools=[{"type": tool, "name": "web_search", "max_uses": 10}],
             messages=messages)
         for block in r.content:
             if block.type == "web_search_tool_result" and isinstance(block.content, list):  # объект = ошибка поиска

@@ -13,7 +13,10 @@ first:
     My name is Ivan Petrov and I represent Example Solar EOOD. Our company owns and operates photovoltaic plants across Bulgaria. Currently, we are looking to acquire an additional operating plant of 1-2 MW.
 
     I saw your listing for {description} and would be glad to learn more:
-  broker_extra: If you have other operating plants of 1-2 MW, I would be glad to receive information about them.
+  broker_extra: |-
+    If you have other operating plants of 1-2 MW, I would be glad to receive information about them. In addition to operating plants, we are also considering land plots suitable for the construction of a photovoltaic plant, with a building permit and secured grid connection capacity.
+
+    Could you also let me know the terms of cooperation you work under (commission, exclusivity, transaction procedure)? We would prefer to clarify them at the outset.
   questions:
     - Is the plant operating at the moment, and is the listing still current?
     - What is the connected capacity and what are the terms of the grid connection agreement?
@@ -21,6 +24,24 @@ first:
     - What is the asking price?
   outro: |-
     If you have any questions, you can reach me by email or via WhatsApp or Viber at the number below. I would be glad to discuss all the terms. Thank you in advance!
+
+  general:
+    subject: Inquiry about photovoltaic plants and land plots
+    intro: |-
+      Hello,
+
+      My name is Ivan Petrov and I represent Example Solar EOOD. Our company owns and operates photovoltaic plants across Bulgaria. We are looking to acquire operating photovoltaic plants of 1-2 MW anywhere in the country. If you have such plants in your portfolio, please send me information about them.
+
+      In addition to operating plants, we are also considering land plots suitable for the construction of a photovoltaic plant, with a building permit and secured grid connection capacity.
+
+      For each plant or plot, I would be grateful for the following information:
+    questions:
+      - Are the plants operating at the moment?
+      - What is the connected capacity and what are the terms of the grid connection agreement?
+      - "Are the main documents in place: title to the land, building permit, and the grid connection agreement with the distribution company?"
+      - What is the asking price?
+    terms: |-
+      Could you also let me know the terms of cooperation you work under (commission, exclusivity, transaction procedure)? We would prefer to clarify them at the outset.
 
 second:
   intro: "Thank you for the information. To evaluate the plant, could you please also clarify:"
@@ -39,3 +60,7 @@ followup:
     Hello,
 
     I am following up on my inquiry of {date}. Is the listing still current?
+  body_general: |-
+    Hello,
+
+    I am following up on my inquiry of {date}. Do you have any suitable plants or land plots?

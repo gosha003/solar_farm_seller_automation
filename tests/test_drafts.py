@@ -69,3 +69,15 @@ def test_rules_catch_violations(bad, reason):
     sig = drafts.template("bg")["signature"]
     assert reason in rules.violations(f"{bad}\n\n{sig}", sig)
     assert "нет подписи" in rules.violations(bad, sig)
+
+
+def test_general_broker_letter_has_no_listing_and_always_asks_price():
+    row = {"площадка": "broker:agency.bg", "заголовок": "Agency", "ссылка": "https://agency.bg/contacts",
+           "мощность кВт": "неизвестно", "цена EUR": "неизвестно", "регион": "неизвестно"}
+    assert drafts.is_broker(row) and drafts.is_general(row)
+    for lang in ("bg", "en", "ru"):
+        subject, body = drafts.first(row, lang)
+        sig = drafts.template(lang)["signature"]
+        assert rules.violations(f"{subject}\n{body}", sig) == [] and "\n4. " in body
+        assert rules.violations(drafts.followup(lang, "08.10.2026", True), sig) == []
+    assert "Видях Вашата обява" not in drafts.first(row, "bg")[1] and "поземлени имоти" in drafts.first(row, "bg")[1]

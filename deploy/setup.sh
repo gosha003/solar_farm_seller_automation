@@ -18,7 +18,7 @@ for f in "$DIR"/deploy/*.service "$DIR"/deploy/*.timer; do
   sed "s#__USER__#$USER#g; s#__DIR__#$DIR#g" "$f" | sudo tee "/etc/systemd/system/$(basename "$f")" >/dev/null
 done
 sudo systemctl daemon-reload
-sudo systemctl enable -q solar-bot solar-search-sites.timer solar-search-web.timer
+sudo systemctl enable -q solar-bot solar-search-sites.timer solar-search-web.timer solar-search-brokers.timer
 sudo systemctl restart solar-bot
-sudo systemctl start solar-search-sites.timer solar-search-web.timer
+sudo systemctl start solar-search-sites.timer solar-search-web.timer solar-search-brokers.timer
 systemctl --no-pager --lines=5 status solar-bot

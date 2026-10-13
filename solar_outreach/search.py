@@ -4,6 +4,7 @@
     python -m solar_outreach.search --local    # только печать, без Sheets
     python -m solar_outreach.search --web      # плюс веб-поиск через Claude (платно, раз в сутки)
     python -m solar_outreach.search --only imot.bg   # только imot.bg: с VM он даёт 403, запускается на ПК владельца
+    python -m solar_outreach.search --brokers  # только поиск брокеров (платно, раз в неделю), строки «брокер:сайт»
 """
 import os
 import re
@@ -16,7 +17,7 @@ from solar_outreach import parse, sheets
 from solar_outreach.config import load_config, single_run
 from solar_outreach.contacts import channel
 from solar_outreach.qualify import qualify
-from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, imot, is_station_sale, kpd, web
+from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, brokers, imot, is_station_sale, kpd, web
 
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
 ORDER = {"A": 0, "B": 1, "C": 2, "-": 3}
@@ -37,6 +38,17 @@ def to_row(l, cfg) -> dict:
             **{item: "не спрошено" for item in sheets.ITEMS},
             "статус переписки": "новая" if q["priority"] != "-" else "не писать",
             "примечание": "; ".join(q["notes"])}
+
+
+def broker_row(l) -> dict:
+    """Брокер без объявления: строка «Станции» с неизвестными мощностью и ценой, приоритет B (писать всем найденным)."""
+    em, ph = l.extra["emails"], l.extra["phones"]
+    return {"дата найдено": date.today().isoformat(), "площадка": l.source.replace(": ", ":"), "ссылка": l.url,
+            "заголовок": l.title, "регион": "неизвестно", "мощность кВт": "неизвестно", "цена EUR": "неизвестно",
+            "EUR/кВт": "неизвестно", "год": "неизвестно", "режим": "неизвестно", "телефон": ", ".join(ph),
+            "email": ", ".join(em), "продавец": l.seller, "канал": channel(em, ph), "отбор": "брокер", "скоринг": 50,
+            "приоритет": "B", **{item: "не спрошено" for item in sheets.ITEMS}, "статус переписки": "новая",
+            "примечание": "брокер, найден поиском (не по объявлению)"}
 
 
 def keys(r: dict) -> set:
@@ -71,7 +83,19 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
             yield src.parse_ad(url, html)
 
 
-def main(local: bool, use_web: bool = False, only: str = "") -> None:
+def find_brokers(fetch, seen: set) -> list[dict]:
+    out = []
+    for url, name in brokers.links(fetch).items():
+        if ("url", url) in seen or not (html := fetch(url)):
+            continue
+        row = broker_row(brokers.parse_ad(url, html, name, fetch))
+        if not keys(row) & seen:
+            seen |= keys(row)
+            out.append(row)
+    return out
+
+
+def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: bool = False) -> None:
     cfg = load_config()
     s = cfg["scraping"]
     fetch = Fetcher(s["user_agent"], tuple(s["delay_sec"]), s.get("host_delay_sec"))
@@ -86,7 +110,13 @@ def main(local: bool, use_web: bool = False, only: str = "") -> None:
             seen |= keys(r)
 
     new, failed = [], dict(UNAVAILABLE)
-    active = {"imot.bg": imot} if only == "imot.bg" else {**SOURCES, **({"web": web} if use_web else {})}
+    active = {} if find_brokers_too else {"imot.bg": imot} if only == "imot.bg" else {**SOURCES, **({"web": web} if use_web else {})}
+    if find_brokers_too:  # отдельный запуск раз в неделю: только брокеры
+        try:
+            new += find_brokers(fetch, seen)
+        except Exception as e:
+            failed["brokers"] = f"{type(e).__name__}: {e}"[:200]
+        print(f"brokers: готово, всего новых {len(new)}", flush=True)
     for name, src in active.items():
         try:
             for l in listings(name, src, fetch, {k[1] for k in seen if k[0] == "url"}, cfg["criteria"]):
@@ -141,4 +171,5 @@ def settings(cfg: dict) -> list[list]:
 
 
 if __name__ == "__main__":
-    main("--local" in sys.argv, "--web" in sys.argv, sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else "")
+    main("--local" in sys.argv, "--web" in sys.argv, sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else "",
+         "--brokers" in sys.argv)

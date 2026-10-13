@@ -24,7 +24,7 @@ def contact(st: dict) -> str:
 
 
 def make_draft(st: dict, did: str, test: bool) -> dict:
-    lang = drafts.language(st["заголовок"])
+    lang = "bg" if drafts.is_general(st) else drafts.language(st["заголовок"])  # у агентства язык по названию не определить
     subject, body = drafts.first(st, lang)
     kind = "первое (брокер)" if drafts.is_broker(st) else "первое"
     return {"id": did, "id станции": st["id"], "дата": date.today().isoformat(), "язык": lang,

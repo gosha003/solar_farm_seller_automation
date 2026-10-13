@@ -32,7 +32,7 @@ def due(stations: dict, by_id: dict, dialogs: list[dict], days: list[int], today
         if k >= len(days) or not all(sent_on(u) for u in ups) or (today - start).days < days[k]:
             continue
         lang = first["язык"]
-        body = drafts.followup(lang, start.strftime("%d.%m.%Y"))
+        body = drafts.followup(lang, start.strftime("%d.%m.%Y"), drafts.is_general(st))
         subject = first["тема"] if first["тема"].lower().startswith("re:") else f"Re: {first['тема']}"
         thread = first.get("тред Gmail", "")  # нет треда = первое отправлял владелец сам
         channel = "email" if thread else ("email (вручную)" if first["канал"] == "email" else first["канал"])
