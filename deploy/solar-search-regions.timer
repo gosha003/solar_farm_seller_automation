@@ -1,0 +1,10 @@
+[Unit]
+Description=Веб-поиск по областям раз в неделю
+
+[Timer]
+OnCalendar=Wed *-*-* 06:41
+Persistent=true
+Unit=solar-search@regions.service
+
+[Install]
+WantedBy=timers.target

@@ -46,8 +46,11 @@ def note(api, sid, station_id: str, text: str, title: str) -> str:
     msg = owner.note(c, station_id, text, date.today())
     if st and st["статус переписки"] == PENDING:  # автоответ и т.п.: пометка снимается, ждём дальше
         st["статус переписки"], st["следующий шаг"] = "ждём ответа", "ждать ответа"
+    queue = []
+    auto = (settings.get("approval_mode") or cfg["approval_mode"]) == "auto"
     for d in c.new_drafts:
-        approval.present(d, stations[d["id станции"]], False, [])
+        approval.present(d, stations[d["id станции"]], auto, queue)
+    sheets.append(api, sid, "Ручная очередь", queue)
     sheets.append(api, sid, "Диалоги", c.new_dialogs)
     sheets.append(api, sid, "Отказы", c.new_refusals)
     sheets.append(api, sid, "Черновики", c.new_drafts)
