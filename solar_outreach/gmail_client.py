@@ -1,5 +1,6 @@
 """Gmail (раздел 8). Граница безопасности:
 - читаем и меняем ТОЛЬКО треды с меткой SolarBG (проверка в _thread, через неё идёт всё чтение);
+- метку SolarBG сами ставим только письмам от адресов из «Станций» (adopt: решение по From в поиске Gmail, тело не читаем);
 - никаких delete/trash: в модуле их нет;
 - продавцам при DRY_RUN ничего не уходит; владельцу (уведомления, тест Фазы 3) можно.
 """
@@ -67,6 +68,42 @@ def _thread(svc, thread_id: str, label: str) -> dict | None:
     """Тред читаем, только если в нём есть наше письмо с меткой SolarBG. Иначе None: чужая почта не наша."""
     t = svc.threads().get(userId="me", id=thread_id, format="full").execute()
     return t if any(label in m.get("labelIds", []) for m in t.get("messages", [])) else None
+
+
+# На общих почтовиках совпадать должен адрес целиком; на корпоративном домене отвечать может коллега (contact@ -> ivan@).
+PUBLIC_MAIL = {"gmail.com", "googlemail.com", "abv.bg", "mail.bg", "dir.bg", "gbg.bg", "yahoo.com", "outlook.com",
+               "hotmail.com", "live.com", "icloud.com", "mail.ru", "yandex.ru", "yandex.com", "proton.me", "protonmail.com"}
+
+
+def contact_query(emails: list[str], owner: str) -> str:
+    """Отправители для поиска Gmail: адрес на общем почтовике, иначе весь домен."""
+    terms = set()
+    for e in (x.strip().lower() for x in emails):
+        if "@" in e and e != owner:
+            domain = e.split("@")[1]
+            terms.add(e if domain in PUBLIC_MAIL else domain)
+    return " OR ".join(sorted(terms))
+
+
+def adopt(svc, emails: list[str]) -> int:
+    """Письма продавцов без метки SolarBG (ответили с другого адреса домена, переписку начинал владелец вручную):
+    ставим метку, дальше их читает incoming. Сколько писем взяли."""
+    cfg = load_config()
+    who = contact_query(emails, cfg["owner"]["email"].lower())
+    if not who:
+        return 0
+    label, _ = label_ids(svc, cfg["gmail"]["label"])
+    q = f'from:({who}) -label:"{cfg["gmail"]["label"]}" -from:me newer_than:14d'
+    ids, page = [], None
+    while True:
+        resp = svc.messages().list(userId="me", q=q, pageToken=page, maxResults=100).execute()
+        ids += [m["id"] for m in resp.get("messages", [])]
+        page = resp.get("nextPageToken")
+        if not page:
+            break
+    for i in ids:
+        svc.messages().modify(userId="me", id=i, body={"addLabelIds": [label]}).execute()
+    return len(ids)
 
 
 def incoming(svc) -> list[dict]:

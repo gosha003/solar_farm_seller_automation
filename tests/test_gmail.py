@@ -58,6 +58,20 @@ def test_incoming_reads_only_our_threads_and_skips_own_messages():
     assert [m["id"] for m in got] == ["m1"]          # не m0 (наше), не x1 (чужой тред)
 
 
+def test_adopt_labels_mail_from_known_sellers_by_address_or_corporate_domain():
+    assert gmail.contact_query(["contact@agency.example", "Ivan@Gmail.com", "owner@example.com", "", "-"],
+                               "owner@example.com") == "agency.example OR ivan@gmail.com"
+    svc, queries = FakeSvc(), []
+    ex = lambda v: SimpleNamespace(execute=lambda: v)
+    modify = svc.messages().modify
+    svc.messages = lambda: SimpleNamespace(list=lambda **k: queries.append(k["q"]) or ex({"messages": [{"id": "z1"}]}),
+                                           modify=modify)
+    assert gmail.adopt(svc, ["contact@agency.example"]) == 1
+    assert queries[0].startswith("from:(agency.example) -label:") and "-from:me" in queries[0]
+    assert svc.calls == [("modify", "z1", {"addLabelIds": ["L1"]})]
+    assert gmail.adopt(FakeSvc(), []) == 0
+
+
 def test_dry_run_blocks_sellers_but_allows_owner(monkeypatch):
     monkeypatch.setenv("DRY_RUN", "true")  # явно: .env владельца может содержать false, load_env его не перетрёт
     svc = FakeSvc()
