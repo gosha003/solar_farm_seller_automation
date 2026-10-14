@@ -1,6 +1,6 @@
-"""Сообщения «Ручной очереди» для alo.bg: отправляет Claude в Chrome владельца по расписанию (WhatsApp/Viber/другие сайты остаются людям).
+"""Сообщения «Ручной очереди» для alo.bg и WhatsApp: отправляет Claude в Chrome владельца по расписанию (Viber и другие сайты остаются людям).
 
-    python -m solar_outreach.site_queue pending                 # «S0xx <ссылка> | заголовок», по одной строке на сообщение
+    python -m solar_outreach.site_queue pending                 # «S0xx alo <ссылка>» или «S0xx whatsapp <wa.me-ссылка>», по строке на сообщение
     python -m solar_outreach.site_queue text S0xx @файл.txt     # записать текст сообщения в UTF-8 файл
     python -m solar_outreach.site_queue sent S0xx               # сообщение отправлено в alo.bg: станция ждёт ответа, дожимы 4/9 дней
 """
@@ -12,9 +12,14 @@ from solar_outreach import owner, sheets
 from solar_outreach.config import load_config, load_env, single_run
 
 
+def kind(r: dict) -> str:
+    if r["канал"].startswith("сайт") and "alo.bg/" in r["ссылка на объявление"]:
+        return "alo"
+    return "whatsapp" if r["канал"].startswith("телефон") and r.get("WhatsApp", "").startswith("https://wa.me/") else ""
+
+
 def rows(api, sid) -> list[dict]:
-    return [r for r in sheets.read(api, sid, "Ручная очередь")
-            if r["статус"] == "отправить вручную" and r["канал"].startswith("сайт") and "alo.bg/" in r["ссылка на объявление"]]
+    return [r for r in sheets.read(api, sid, "Ручная очередь") if r["статус"] == "отправить вручную" and kind(r)]
 
 
 def sent(api, sid, station_id: str) -> str:
@@ -38,7 +43,7 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     if a[:1] == ["pending"]:
         for r in rows(api, sid):
-            print(r["id станции"], r["ссылка на объявление"])
+            print(r["id станции"], kind(r), r["WhatsApp"] if kind(r) == "whatsapp" else r["ссылка на объявление"])
     elif a[:1] == ["text"] and len(a) == 3 and a[2].startswith("@"):
         r = next((r for r in rows(api, sid) if r["id станции"] == a[1].upper()), None)
         if not r:
