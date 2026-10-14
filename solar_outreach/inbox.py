@@ -22,6 +22,7 @@ INJECTION = re.compile(
     r"bank|card|passport|data)|игнорир\w* (все |всички )?(предыдущ|предишн|правил|инструкц)|забудь\w* (все )?(правил|инструкц)"
     r"|системн\w* (промпт|инструкц)|изпратете (ни )?(парола|данни за карта)|перейд\w* по ссылк|кликн\w* (на|по) (линк|ссылк)",
     re.I)
+OWNER_LED = "ведёт владелец"  # переписку ведёт владелец сам: бот записывает ответ и сообщает, но не отвечает
 ALO = re.compile(r"@([\w-]+\.)*alo\.bg$")  # уведомления alo.bg об ответах продавцов (ответить можно только на сайте)
 ALO_NOTICE = re.compile(r"ново съобщение|new message", re.I)  # в письме alo только ссылка, текст ответа лежит в кабинете
 GREETING = {"bg": "Здравейте,", "en": "Hello,", "ru": "Здравствуйте,"}
@@ -126,6 +127,7 @@ def process(api, sid, svc, auto: bool = False) -> dict:
     new_dialogs, new_drafts, new_black, new_stations, new_refusals = [], [], [], [], []
     stats = {"входящих": 0, "эскалаций": 0, "черновиков": 0, "закрыто": 0, "bounce": 0}
 
+    gmail.adopt(svc, list(by_email))
     for msg in gmail.incoming(svc):
         stats["входящих"] += 1
         frm = parseaddr(gmail.header(msg, "From"))[1].lower()
@@ -172,6 +174,11 @@ def process(api, sid, svc, auto: bool = False) -> dict:
         if st and c:
             apply_facts(st, c)
             st["последний контакт"] = date.today().isoformat()
+        if st and st["статус переписки"] == OWNER_LED:
+            notify.urgent(f"📩 {sid_} · {category} (переписку ведёшь ты, бот не отвечает)\nОт: {frm}\n{summary}\n"
+                          f"Тред: {thread_url(msg['threadId'])}")
+            gmail.mark_done(svc, msg)
+            continue
 
         if category in ESCALATE or not st:
             stats["эскалаций"] += 1

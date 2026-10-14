@@ -16,7 +16,7 @@ from solar_outreach import drafts, followup, gmail_client as gmail, inbox, llm, 
 from solar_outreach.config import dry_run, load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
-PAUSED = ("эскалация", "отказ", "пропущено владельцем", "ответ на alo")  # раздел 4: пока владелец не решил, письма не уходят
+PAUSED = ("эскалация", "отказ", "пропущено владельцем", "ответ на alo", inbox.OWNER_LED)  # раздел 4: пока владелец не решил, письма не уходят
 
 
 def contact(st: dict) -> str:
