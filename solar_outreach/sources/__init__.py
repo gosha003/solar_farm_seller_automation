@@ -9,6 +9,7 @@ robots.txt соблюдает Fetcher (свой разбор: стандартн
 """
 import random
 import re
+import subprocess
 import time
 from dataclasses import dataclass, field
 from urllib.parse import unquote, urlparse
@@ -16,7 +17,6 @@ from urllib.parse import unquote, urlparse
 import requests
 
 UNAVAILABLE = {
-    "olx.bg": "403 на любой запрос, включая robots.txt (CloudFront блок)",
     "bulgarianproperties.bg": "robots.txt запрещает страницы поиска (/*search)",
     "businessesforsale.com": "robots.txt запрещает /search?",
     "sales.bcpea.org": "нет поиска по ключевым словам, ФЕЦ не выделены в типах имуществ",
@@ -27,7 +27,8 @@ PV = re.compile(r"фотовол|фотоволт|фец|фвец|соларе?�
 # Услуги/оборудование/покупка, а также не действующие станции: парцел «за ФЕЦ», проект, разрешение.
 NOT_SALE = re.compile(r"изгражд|проектир|монтаж|инвертор|панел|търс|\bкупува|ремарке|^батери|бойлер|компенсир"
                       r"|под наем|сглобен|оборудван|подд?ръжк|профилакт|почиств|кабел|конструкц|система за"
-                      r"|за фотовол|за фец|подходящ|проект|уведомление|разрешени"
+                      r"|за фотовол|за фец|подходящ|проект|уведомление|разрешени|разрешител|за строеж"
+                      r"|бензиностанц|газстанц|автомивк|автосервиз"
                       r"|електротехник|работа|служител|оператор|техник|косене|трева|земеделска земя|декара", re.I)
 
 
@@ -73,8 +74,39 @@ def robots_allows(rules: list[tuple[bool, str]], path: str) -> bool:
     return best[1]
 
 
+# OLX (CloudFront) режет TLS-отпечаток Python/OpenSSL: 403 на любой запрос, даже с браузерным UA, а системный curl
+# (Schannel) с тем же честным UA получает 200. Для этих хостов GET идёт через curl; pace, robots.txt и UA те же.
+CURL_HOSTS = {"www.olx.bg"}
+
+
+class CurlResponse:
+    """Минимум от requests.Response, который читает Fetcher."""
+
+    def __init__(self, status: int, text: str):
+        self.status_code, self.text = status, text
+        self.ok = status < 400
+        self.headers = {"content-type": "text/html; charset=utf-8"}  # OLX отдаёт utf-8; без этого Fetcher гадал бы кодировку
+
+    def raise_for_status(self) -> None:
+        if not self.ok:
+            raise requests.HTTPError(f"{self.status_code} Error", response=self)
+
+
 class Fetcher:
     """Вежливый GET: нормальный UA, пауза между запросами, robots.txt каждого хоста."""
+
+    def get(self, url: str):
+        if urlparse(url).netloc not in CURL_HOSTS:
+            return self.session.get(url, timeout=25)
+        try:
+            p = subprocess.run(["curl", "-sL", "--max-time", "25", "-A", self.session.headers["User-Agent"],
+                                "-w", "\n%{http_code}", url], capture_output=True, timeout=40)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise requests.ConnectionError(f"curl: {e}") from e
+        body, _, code = p.stdout.decode("utf-8", "replace").rpartition("\n")
+        if p.returncode or not code.isdigit() or code == "000":
+            raise requests.ConnectionError(f"curl exit {p.returncode}: {p.stderr.decode('utf-8', 'replace')[:100]}")
+        return CurlResponse(int(code), body)
 
     def __init__(self, user_agent: str, delay: tuple[float, float], host_delay: dict[str, float] | None = None):
         self.session = requests.Session()
@@ -88,7 +120,7 @@ class Fetcher:
         p = urlparse(url)
         if p.netloc not in self.robots:
             try:
-                r = self.session.get(f"{p.scheme}://{p.netloc}/robots.txt", timeout=15)
+                r = self.get(f"{p.scheme}://{p.netloc}/robots.txt")
                 # 4xx = ограничений нет; 5xx/сеть = недоступен, ничего не берём (RFC 9309)
                 self.robots[p.netloc] = robots_rules(r.text) if r.ok else [] if r.status_code < 500 else [(False, "/")]
             except requests.RequestException:
@@ -106,7 +138,7 @@ class Fetcher:
         for attempt in range(2):
             time.sleep(max(0.0, self.last + pause - time.monotonic()))
             try:
-                r = self.session.get(url, timeout=25)
+                r = self.get(url)
             finally:
                 self.last = time.monotonic()
             if r.status_code == 429 and attempt == 0:

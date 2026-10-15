@@ -3,7 +3,8 @@
     python -m solar_outreach.search            # пишет в Google Sheet (создаёт при первом запуске)
     python -m solar_outreach.search --local    # только печать, без Sheets
     python -m solar_outreach.search --web      # плюс веб-поиск через Claude (платно, раз в сутки)
-    python -m solar_outreach.search --only imot.bg   # только imot.bg: с VM он даёт 403, запускается на ПК владельца
+    python -m solar_outreach.search --only pc        # imot.bg + olx.bg: с VM они дают 403, запускаются на ПК владельца
+                                                     # (или --only imot.bg / --only olx.bg по отдельности)
     python -m solar_outreach.search --regions  # веб-поиск отдельно по областям Монтана, Видин, Добрич, Шумен, Ямбол, Хасково, Кърджали (платно)
     python -m solar_outreach.search --brokers  # только поиск брокеров (платно, раз в неделю), строки «брокер:сайт»
 """
@@ -19,9 +20,10 @@ from solar_outreach import parse, sheets
 from solar_outreach.config import load_config, single_run
 from solar_outreach.contacts import channel
 from solar_outreach.qualify import qualify
-from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, brokers, imot, is_station_sale, kpd, web
+from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, brokers, imot, is_station_sale, kpd, olx, web
 
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
+PC_SOURCES = {"imot.bg": imot, "olx.bg": olx}  # с VM дают 403: запускаются только с ПК владельца (--only pc = оба)
 ORDER = {"A": 0, "B": 1, "C": 2, "-": 3}
 
 
@@ -113,8 +115,9 @@ def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: b
 
     new, failed = [], dict(UNAVAILABLE)
     by_region = SimpleNamespace(links=web.regional_links, parse_ad=web.parse_ad)
-    active = ({} if find_brokers_too else {"web": by_region} if regions else {"imot.bg": imot} if only == "imot.bg"
-              else {**SOURCES, **({"web": web} if use_web else {})})
+    active = ({} if find_brokers_too else {"web": by_region} if regions else
+              {k: v for k, v in PC_SOURCES.items() if only in (k, "pc")} if only else
+              {**SOURCES, **({"web": web} if use_web else {})})
     if find_brokers_too:  # отдельный запуск раз в неделю: только брокеры
         try:
             new += find_brokers(fetch, seen)
