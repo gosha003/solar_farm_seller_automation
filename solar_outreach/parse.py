@@ -1,8 +1,8 @@
-"""Извлечение фактов из объявления. Неоднозначно = None («неизвестно»), не угадываем."""
+"""Extract facts from a listing. Ambiguous = None («неизвестно»): no guessing."""
 import re
 
 NUM = r"(\d{1,3}(?:[ ., ]\d{3})+(?!\d)|\d+(?:[.,]\d+)?)"  # «1 160 000», «220,000», «1.5», «1,5»
-# «кв» в разговорном = кВт («ФЕЦ 30кв»), но «кв.м»/«кв. м» = площадь.
+# colloquial «кв» = kW («ФЕЦ 30кв»), but «кв.м»/«кв. м» = area.
 POWER = re.compile(NUM + r"\s*(mwp|mw|мвт|мегават\w*|kwp|kw|квт|кв(?!\.?\s*м)|kвт|кw)(?![a-zа-я])", re.I)
 MONEY = re.compile(NUM + r"\s*(€|eur\w*|евро|лв\.?|лева|bgn)|(€|eur)\s*" + NUM, re.I)
 YEAR = re.compile(r"(?:експлоатация|изградена|построена|пусната|въведена|от|година|г\.?)\D{0,25}?\b(20[01]\d|202[0-6])\b"
@@ -28,7 +28,7 @@ def powers_kw(text: str) -> list[float]:
     out = []
     for m in POWER.finditer(text):
         before = text[max(0, m.start() - 2):m.start()]
-        if re.search(r"\d\s*[xх×]\s*$", before):  # «15x100kw», «1х700kw»: состав, не мощность станции
+        if re.search(r"\d\s*[xх×]\s*$", before):  # «15x100kw», «1х700kw»: a breakdown, not the station's power
             continue
         value, unit = num(m.group(1)), m.group(2).lower()
         out.append(value * 1000 if unit.startswith(("m", "м")) else value)
@@ -36,7 +36,7 @@ def powers_kw(text: str) -> list[float]:
 
 
 def power_kw(title: str, text: str) -> float | None:
-    """Заголовок главнее текста. В тексте: одно значение или значение после слова «мощност»."""
+    """The title wins over the text. In the text: a single value, or the value after the word «мощност»."""
     for src in (title, text):
         vals = set(powers_kw(src))
         if len(vals) == 1:
@@ -51,13 +51,13 @@ def power_kw(title: str, text: str) -> float | None:
 
 
 def price_eur(price_text: str, text: str, eur_bgn: float) -> float | None:
-    """Цена из поля цены объявления, иначе одна сумма в тексте. «Договаряне» / несколько разных сумм = None."""
+    """Price from the listing's price field, else a single amount in the text. «Договаряне» / several different amounts = None."""
     for src in (price_text, text):
         found = set()
         for m in MONEY.finditer(src):
             amount, cur = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
             value = num(amount)
-            if value < 1000:  # цены за кв.м, за кВт, за кВтч
+            if value < 1000:  # prices per m², per kW, per kWh
                 continue
             found.add(round(value / eur_bgn if cur.lower().startswith(("л", "b")) else value))
         if len(found) == 1:

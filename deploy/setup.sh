@@ -1,10 +1,10 @@
 #!/bin/sh
-# На VM (Debian 12): распаковать код, venv, systemd. Повторный запуск = обновление.
+# On the VM (Debian 12): unpack code, venv, systemd units. Running it again = update.
 set -e
 DIR="$HOME/solar"
-sudo timedatectl set-timezone America/Toronto      # даты в таблице и дайджест по времени владельца
+sudo timedatectl set-timezone America/Toronto      # sheet dates and the digest follow the owner's time zone
 python3 -c "import ensurepip" 2>/dev/null || { sudo apt-get update -qq; sudo apt-get install -y -qq python3-venv; }
-if [ ! -f /swapfile ]; then   # 1 ГБ RAM мало для бота и поиска одновременно: swap 2 ГБ на бесплатном диске
+if [ ! -f /swapfile ]; then   # 1 GB RAM is too little for bot + search at once: 2 GB swap on the free disk
   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap -q /swapfile && sudo swapon /swapfile
   echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null
 fi

@@ -1,6 +1,6 @@
-"""Раздел 4 ТЗ: проверка каждого исходящего текста. Пустой список = можно показывать/отправлять.
+"""Hard rules: every outgoing text is checked. An empty list = OK to show/send.
 
-Проверка намеренно грубая (regex, без LLM): лучше лишняя эскалация владельцу, чем письмо с офером.
+The check is deliberately crude (regex, no LLM): an extra escalation to the owner beats a letter containing an offer.
 """
 import re
 
@@ -14,7 +14,7 @@ CHECKS = [
     ("офер/предложение цены", re.compile(
         r"\bоферт\w*|\boffer\w*|\bоффер\w*|предлага\w* (Ви |вам |you )?(цена|сума)|бихме платили|we (would|will|can) pay"
         r"|готови сме да платим|готовы заплатить|ще (я |го )?купим|we will buy|мы (её |ее )?купим|гарантира\w*"
-        r"|guarantee", re.I)),  # «търсим да закупим» (намерение) допустимо, «ще купим» (обещание) нет
+        r"|guarantee", re.I)),  # «търсим да закупим» (we want to buy: intent) is fine, «ще купим» (we will buy: a promise) is not
     ("встреча/звонок/осмотр/NDA/задаток", re.compile(
         r"\bсреща\w*|\bmeeting|\bвстреч\w*|оглед\w*|осмотр\w*|\bviewing|\bvisit\b|посещени\w*|\bNDA\b"
         r"|споразумение за поверителност|предварителен договор|preliminary (contract|agreement)|задат\w*|депозит\w*"

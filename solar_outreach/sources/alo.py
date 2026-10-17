@@ -1,5 +1,5 @@
-"""alo.bg: только первая страница поиска (пагинацию запрещает robots.txt), поэтому много запросов.
-Телефон скрыт за AJAX (?ajax= запрещён robots.txt): контакт берём из текста или канал «сайт»."""
+"""alo.bg: only the first search page (robots.txt disallows pagination), hence many queries.
+The phone is behind AJAX (?ajax= is disallowed by robots.txt): the contact comes from the text, or the channel is «сайт»."""
 import re
 from urllib.parse import quote
 
@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 from solar_outreach.sources import Listing
 
-# alo.bg отвечает 429 уже после ~30 запросов подряд: держим запросы к поиску короткими.
+# alo.bg answers 429 after ~30 requests in a row: keep the number of search requests small.
 QUERIES = ["фотоволтаична централа", "фец продажба", "фотоволтаичен парк", "фотоволтаична централа 1 mw",
            "фотоволтаична централа работеща", "соларен парк"]
 

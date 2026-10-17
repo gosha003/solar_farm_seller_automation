@@ -57,7 +57,7 @@ def test_edit_flow_rewrites_and_checks_rules(monkeypatch, tg):
     assert calls == ["поздоровайся иначе"] and state["pending_edit"] == ""
     out = changed["D003"]
     assert out["статус"] == "на одобрении" and out["текст"].startswith("Добър ден")
-    assert "сумма/цена покупки/бюджет" in out["нарушения правил"]       # владельцу видно предупреждение
+    assert "сумма/цена покупки/бюджет" in out["нарушения правил"]       # the owner sees a warning
     assert "⚠️ Нарушения правил" in tg[-1]
 
 
@@ -91,7 +91,7 @@ def test_auto_mode_approves_clean_drafts_only(tg):
     assert clean["статус"] == "одобрено" and tg == [] and st["статус переписки"] == "одобрено, ждёт отправки"
     dirty = {**approval.make_draft(EMAIL_ST, "D011", test=False), "нарушения правил": "ссылка"}
     approval.present(dirty, dict(EMAIL_ST), True, queue)
-    assert dirty["статус"] == "на одобрении" and len(tg) == 1        # нарушение -> владельцу на кнопки
+    assert dirty["статус"] == "на одобрении" and len(tg) == 1        # violation -> to the owner with buttons
     test = approval.make_draft(EMAIL_ST, "D012", test=True)
     approval.present(test, dict(EMAIL_ST), True, queue)
     manual = approval.make_draft(EMAIL_ST, "D013", test=False)
@@ -111,11 +111,11 @@ def test_limits_per_run_and_per_day_but_replies_unlimited(monkeypatch, tg):
     ds = [mk(1, "первое"), mk(2, "первое"), mk(3, "ответ"), mk(4, "дожим 1"), mk(5, "ответ")]
     by_id, stations, cfg = {d["id"]: d for d in ds}, {"S001": dict(EMAIL_ST)}, {"limits": {"send_pause_sec": [0, 0]}}
     approval.send_approved(None, None, ds, by_id, stations, cfg, {"run": 1, "first": 5})
-    assert sent == ["s1@abv.bg", "s3@abv.bg", "s5@abv.bg"]          # одно первое за запуск, ответы все
-    assert ds[1]["статус"] == ds[3]["статус"] == "одобрено"            # ждут следующего запуска
+    assert sent == ["s1@abv.bg", "s3@abv.bg", "s5@abv.bg"]          # one first letter per run, all replies
+    assert ds[1]["статус"] == ds[3]["статус"] == "одобрено"            # wait for the next run
     sent.clear()
     approval.send_approved(None, None, ds[1:2], by_id, stations, cfg, {"run": 1, "first": 0})
-    assert sent == []                                                   # суточный лимит
+    assert sent == []                                                   # daily cap
 
 
 def test_bounce_stop_switches_to_manual(monkeypatch, tg):
@@ -128,7 +128,7 @@ def test_bounce_stop_switches_to_manual(monkeypatch, tg):
     assert c.mode() == "manual" and "Автоотправка выключена" in urgent[0]
     c.settings["approval_mode"], c.state["bounce 2026-10-08"] = "auto", "1"
     approval.bounce_stop(c, by_id, "2026-10-08")
-    assert c.mode() == "auto"                                           # ровно 10%: не выше порога
+    assert c.mode() == "auto"                                           # exactly 10%: not above the threshold
 
 
 def test_dry_run_email_goes_to_manual_queue_and_never_auto_sent(monkeypatch, tg):
@@ -137,4 +137,4 @@ def test_dry_run_email_goes_to_manual_queue_and_never_auto_sent(monkeypatch, tg)
     approval.approve(d, st, queue)
     assert queue[0]["канал"] == "email: s@abv.bg" and queue[0]["текст"].startswith("Тема: ")
     monkeypatch.setenv("DRY_RUN", "false")
-    assert approval.to_send({"D020": d}) == []                       # позже система его не отправит
+    assert approval.to_send({"D020": d}) == []                       # the system won't send it later

@@ -15,14 +15,14 @@ def test_alo_15mw_is_top_candidate():
 
 def test_size_and_price_bands():
     assert q(60, 54_300)["verdict"] == "мелкая"
-    assert q(950, None)["verdict"] == "мелкая"      # мягких границ нет: строго 1000-2000
+    assert q(950, None)["verdict"] == "мелкая"      # no soft bounds: strictly 1000-2000
     assert q(2100, None)["verdict"] == "крупная"
     assert q(1000, None)["verdict"] == q(2000, None)["verdict"] == "кандидат"
     assert q(5000, None)["verdict"] == "крупная"
-    assert q(1000, 1_200_000)["verdict"] == "дорого"           # 1200 €/кВт > skip_above
+    assert q(1000, 1_200_000)["verdict"] == "дорого"           # 1200 €/kW > skip_above
     cap = C["price_per_kwp_eur"]["skip_above"]
     assert q(1000, (cap + 1) * 1000)["verdict"] == "дорого"
-    assert q(1000, cap * 1000)["verdict"] == "кандидат"         # граница включительно
+    assert q(1000, cap * 1000)["verdict"] == "кандидат"         # boundary inclusive
     cheap = q(1000, 500_000)
     assert cheap["verdict"] == "кандидат" and "подозрительно дешево" in cheap["notes"]
 

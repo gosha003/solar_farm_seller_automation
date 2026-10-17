@@ -1,5 +1,5 @@
-"""Веб-поиск через Claude (server tool web_search): находит объявления о ФЕЦ 1-2 МВт на любых сайтах.
-Claude только ищет; страницы открывает наш Fetcher (robots.txt, пауза). Раз в сутки: python -m solar_outreach.search --web
+"""Web search via Claude (server tool web_search): finds 1-2 MW PV listings on any site.
+Claude only searches; our Fetcher opens the pages (robots.txt, pauses). Once a day: python -m solar_outreach.search --web
 """
 import re
 from urllib.parse import urlparse
@@ -24,20 +24,20 @@ SKIP_HOSTS = ("olx.bg", "facebook.com", "youtube.com", "linkedin.com", "instagra
 
 
 def search_results(client, cfg, prompt: str = PROMPT, tool: str = "web_search_20260209") -> dict[str, str]:
-    """{url: описание модели} для страниц, которые модель отобрала. URL принимаем только если он был
-    в реальных результатах web_search (защита от выдуманных ссылок). pause_turn: продолжаем ход (до 3 раз)."""
+    """{url: model's description} for pages the model picked. A URL is accepted only if it appeared
+    in the actual web_search results (guards against invented links). pause_turn: continue the turn (up to 3 times)."""
     messages = [{"role": "user", "content": prompt}]
     found, answer = {}, ""
     for _ in range(3):
         r = client.beta.messages.create(
             model=cfg["llm"]["model_strong"], max_tokens=4000,
-            betas=["server-side-fallback-2026-07-01"], fallbacks="default",  # отказ модели -> сервер повторит на другой
+            betas=["server-side-fallback-2026-07-01"], fallbacks="default",  # the model refused -> the server retries on another one
             output_config={"effort": "medium"},
-            # user_location с country=BG API не принимает (400); болгарские запросы и так находят .bg
+            # the API rejects user_location with country=BG (400); Bulgarian queries find .bg sites anyway
             tools=[{"type": tool, "name": "web_search", "max_uses": 10}],
             messages=messages)
         for block in r.content:
-            if block.type == "web_search_tool_result" and isinstance(block.content, list):  # объект = ошибка поиска
+            if block.type == "web_search_tool_result" and isinstance(block.content, list):  # an object = a search error
                 for res in block.content:
                     found.setdefault(res.url.rstrip("/"), res.title or "")
             elif block.type == "text":
@@ -59,11 +59,11 @@ def links(fetch) -> dict[str, str]:
     return {u: t for u, t in found.items() if not urlparse(u).netloc.endswith(SKIP_HOSTS)}
 
 
-REGIONS = ("Монтана", "Видин", "Добрич", "Шумен", "Ямбол", "Хасково", "Кърджали")  # общий запрос их не находит
+REGIONS = ("Монтана", "Видин", "Добрич", "Шумен", "Ямбол", "Хасково", "Кърджали")  # the general query doesn't find them
 
 
 def regional_links(fetch) -> dict[str, str]:
-    """Тот же поиск, но отдельным запросом на каждую область: python -m solar_outreach.search --regions."""
+    """Same search, but one query per province: python -m solar_outreach.search --regions."""
     cfg, client, found = load_config(), anthropic.Anthropic(), {}
     for region in REGIONS:
         prompt = PROMPT + (f'\nSearch ONLY listings located in {region} province (област {region}). Put "{region}" in '
@@ -73,7 +73,7 @@ def regional_links(fetch) -> dict[str, str]:
 
 
 def parse_ad(url: str, html: str) -> Listing:
-    """Наши площадки разбираем их парсером; чужой сайт: заголовок и видимый текст страницы."""
+    """Our own sites are parsed by their parser; any other site: title and visible page text."""
     host = urlparse(url).netloc
     if host in OWN:
         listing = OWN[host].parse_ad(url, html)

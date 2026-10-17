@@ -1,9 +1,9 @@
-"""Потолок расходов Google Cloud. Бюджет (7 CAD ≈ $5 в месяц) сам ничего не ограничивает, только сообщает:
-Google несколько раз в сутки шлёт сумму расходов в Pub/Sub. Демон на VM читает подписку и при расходах
->= бюджета присылает срочное уведомление и выключает VM (остановленная VM и диск 30 ГБ в бесплатном лимите).
+"""Google Cloud spending cap. The budget (7 CAD ≈ $5 a month) limits nothing by itself, it only reports:
+Google posts the spend to Pub/Sub several times a day. The daemon on the VM reads the subscription and, when
+spend >= budget, sends an urgent alert and powers the VM off (a stopped VM and its 30 GB disk stay in the free tier).
 
-Только на VM: учётка сервис-аккаунта solar-bot из metadata (право только читать эту подписку).
-ponytail: отчёты Google приходят с задержкой до суток, поэтому реальный потолок «около $5», а не ровно.
+VM only: credentials of the solar-bot service account from metadata (it may only read this subscription).
+ponytail: Google's reports lag up to a day, so the real cap is "about $5", not exact.
 """
 import base64
 import json
@@ -17,8 +17,8 @@ API = "https://pubsub.googleapis.com/v1/"
 
 
 def latest(subscription: str, session=None) -> dict | None:
-    """Новый отчёт Google о расходах с наибольшей суммой (costAmount, budgetAmount, currencyCode).
-    None: новых отчётов нет или мы не на VM."""
+    """Newest Google spend report with the largest amount (costAmount, budgetAmount, currencyCode).
+    None: no new reports, or not running on the VM."""
     if session is None:
         try:
             creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/pubsub"])
@@ -34,7 +34,7 @@ def latest(subscription: str, session=None) -> dict | None:
 
 
 def enforce(subscription: str, urgent, session=None) -> str | None:
-    """Потолок: расходы >= бюджета -> срочно владельцу и выключить VM. Возвращает строку для «_state»/дайджеста."""
+    """Cap: spend >= budget -> urgent alert to the owner and power off the VM. Returns a line for «_state»/the digest."""
     r = latest(subscription, session)
     if not r:
         return None

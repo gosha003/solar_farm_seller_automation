@@ -8,12 +8,12 @@ def test_single_run_blocks_parallel_and_releases():
         with pytest.raises(SystemExit):
             with single_run("pytest_lock"):
                 pass
-    with single_run("pytest_lock"):  # освобождена после выхода
+    with single_run("pytest_lock"):  # released after exit
         pass
 
 
 def test_owner_facts_are_plain_strings():
-    o = load_config()["owner"]  # «Связь: ...» без кавычек YAML читает как словарь
+    o = load_config()["owner"]  # an unquoted "Contact: ..." would be read by YAML as a mapping
     assert all(isinstance(f, str) for f in o["facts"] + o.get("internal_notes", []))
 
 

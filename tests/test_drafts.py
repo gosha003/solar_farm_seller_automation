@@ -21,7 +21,7 @@ def test_first_letter_content():
     assert subject == "Запитване за фотоволтаична централа - Плевен"
     assert "Видях Вашата обява за фотоволтаична централа 1,5 MW в района на Плевен и ще се радвам" in body
     assert "\n1. Централата действаща ли е" in body and "\n4. Каква е исканата цена?" in body
-    assert "цена?\n\nАко имате други действащи централи" in body          # брокер: вопрос про портфель в конце
+    assert "цена?\n\nАко имате други действащи централи" in body          # broker: the portfolio question at the end
     assert "исканата цена" in body
     _, priced = drafts.first({**ROW, "цена EUR": "1160000"}, "bg")
     assert "исканата цена" not in priced and "\n3. Налични" in priced and "\n4." not in priced
@@ -34,7 +34,7 @@ def test_second_letter_skips_answered_items():
     row = {**ROW, "5 год ввода": "получен: 2024", "8 панели": "получен: LONGi", "8 инверторы": "спрошено"}
     body = drafts.second(row, "bg")
     assert "Година на въвеждане" not in body
-    assert "Марка и модел на панелите" in body          # инверторы ещё не известны
+    assert "Марка и модел на панелите" in body          # inverters not known yet
     assert body.startswith("Благодаря за информацията") and "\n6. Моля, изпратете копия" in body
 
 

@@ -1,4 +1,4 @@
-"""Живой прогон классификатора (Haiku) на наборе из classifier_cases.yaml. Платно (~$0.02), поэтому по флагу:
+"""Live run of the classifier (Haiku) on the cases in classifier_cases.yaml. Paid (~$0.02), so behind a flag:
     LIVE_LLM=1 .venv/Scripts/python -m pytest tests/test_classifier_live.py -q
 """
 import os

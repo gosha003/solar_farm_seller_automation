@@ -6,10 +6,10 @@ Type=oneshot
 User=__USER__
 WorkingDirectory=__DIR__
 Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
-# %i = web: плюс веб-поиск Claude (~$0.2), раз в сутки; sites: только площадки; brokers: поиск брокеров, раз в неделю; regions: веб-поиск по областям, раз в неделю
+# %i = web: plus Claude web search (~$0.2), daily; sites: listing sites only; brokers: broker search, weekly; regions: per-province web search, weekly
 ExecStart=/bin/sh -c 'exec __DIR__/.venv/bin/python -m solar_outreach.search $( [ "%i" = web ] && echo --web; [ "%i" = brokers ] && echo --brokers; [ "%i" = regions ] && echo --regions )'
 TimeoutStartSec=3h
-# e2-micro: 1 ГБ RAM и доля CPU. Поиск уступает боту, иначе бот и SSH встают (так было 2026-10-08)
+# e2-micro: 1 GB RAM and a CPU share. Search yields to the bot, otherwise bot and SSH freeze (happened 2026-10-08)
 Nice=19
 CPUWeight=10
 IOWeight=10

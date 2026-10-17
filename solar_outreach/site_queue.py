@@ -1,8 +1,5 @@
-"""Сообщения «Ручной очереди» для alo.bg и WhatsApp: отправляет Claude в Chrome владельца по расписанию (Viber и другие сайты остаются людям).
-
-    python -m solar_outreach.site_queue pending                 # «S0xx alo <ссылка>» или «S0xx whatsapp <wa.me-ссылка>», по строке на сообщение
-    python -m solar_outreach.site_queue text S0xx @файл.txt     # записать текст сообщения в UTF-8 файл
-    python -m solar_outreach.site_queue sent S0xx               # сообщение отправлено в alo.bg: станция ждёт ответа, дожимы 4/9 дней
+"""«Ручная очередь» messages for alo.bg and WhatsApp, sent by a scheduled Claude-in-Chrome routine in the
+owner's browser (Viber and other sites stay with people). The routine drives this CLI (usage: USAGE).
 """
 import os
 import sys
@@ -10,6 +7,13 @@ from datetime import date
 
 from solar_outreach import owner, sheets
 from solar_outreach.config import load_config, load_env, single_run
+
+USAGE = """Сообщения «Ручной очереди» для alo.bg и WhatsApp: отправляет Claude в Chrome владельца по расписанию (Viber и другие сайты остаются людям).
+
+    python -m solar_outreach.site_queue pending                 # «S0xx alo <ссылка>» или «S0xx whatsapp <wa.me-ссылка>», по строке на сообщение
+    python -m solar_outreach.site_queue text S0xx @файл.txt     # записать текст сообщения в UTF-8 файл
+    python -m solar_outreach.site_queue sent S0xx               # сообщение отправлено в alo.bg: станция ждёт ответа, дожимы 4/9 дней
+"""  # printed to the owner, so it stays in Russian
 
 
 def kind(r: dict) -> str:
@@ -53,4 +57,4 @@ if __name__ == "__main__":
         with single_run("sheet", stale_sec=3600, wait=300):
             print(sent(api, sid, a[1]))
     else:
-        sys.exit(__doc__)
+        sys.exit(USAGE)

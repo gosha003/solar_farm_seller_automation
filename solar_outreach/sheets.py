@@ -1,4 +1,4 @@
-"""Google Sheets: единственный источник правды (раздел 6). Чтение и запись пачками."""
+"""Google Sheets: the single source of truth. Reads and writes in batches."""
 import os
 from functools import cache
 
@@ -13,7 +13,7 @@ ITEMS = ["1 действующая", "2 капацитет", "3 док: земл
 
 
 def mark_asked(st: dict, first_letter: bool) -> None:
-    """После отправки: первое письмо спрашивает пункты 1-4, ответ на ответ продавца: все оставшиеся."""
+    """After sending: the first letter asks items 1-4; a reply to the seller's answer asks all the remaining ones."""
     for item in ITEMS:
         if st.get(item) == "не спрошено" and (not first_letter or item.split()[0] in ("1", "2", "3", "4")):
             st[item] = "спрошено"
@@ -27,14 +27,14 @@ TABS = {
     "Черновики": ["id", "id станции", "дата", "язык", "тип", "канал", "кому", "тема", "текст", "статус",
                   "tg сообщение", "правка владельца", "нарушения правил", "тред Gmail", "in-reply-to", "отправлено"],
     "Ручная очередь": ["id станции", "канал", "ссылка на объявление", "текст", "WhatsApp", "Viber", "статус"],
-    "Чёрный список": ["контакт или домен", "причина", "дата"],  # технически недоставляемые (bounce) и /blacklist
-    "Отказы": ["контакт", "id станции", "причина", "дата", "что написал"],  # не писать автоматически (раздел 4)
-    "Настройки": ["параметр", "значение"],  # ключ, значение: формат kv()/set_kv()
+    "Чёрный список": ["контакт или домен", "причина", "дата"],  # technically undeliverable (bounce) and /blacklist
+    "Отказы": ["контакт", "id станции", "причина", "дата", "что написал"],  # never written to automatically (hard rules)
+    "Настройки": ["параметр", "значение"],  # key, value: the kv()/set_kv() format
     "_state": ["ключ", "значение"],
 }
 
 
-# «статус переписки» -> цвет строки во вкладке «Станции» (раздел 6).
+# «статус переписки» -> row color in the «Станции» tab.
 STATUS_COLORS = {
     "квалифицирована": {"red": 0.72, "green": 0.88, "blue": 0.72},
     "ждём ответа": {"red": 1.0, "green": 0.95, "blue": 0.7},
@@ -51,7 +51,7 @@ def format_requests(sheet_id: int) -> list[dict]:
                         "format": {"backgroundColor": color}}}}} for status, color in STATUS_COLORS.items()]
 
 
-@cache  # один клиент на процесс: build() на каждый проход демона течёт (1.5 ГБ за сутки)
+@cache  # one client per process: build() on every daemon pass leaks memory (1.5 GB a day)
 def service():
     return build("sheets", "v4", credentials=credentials(), cache_discovery=False).spreadsheets()
 
@@ -65,7 +65,7 @@ def col(n: int) -> str:
 
 
 def create(api, title: str, settings: list[list]) -> str:
-    """Таблица со всеми вкладками и заголовками. ID сохраняется в .env как SPREADSHEET_ID."""
+    """The spreadsheet with all tabs and headers. Its ID is saved to .env as SPREADSHEET_ID."""
     body = {"properties": {"title": title, "locale": "ru_RU"},
             "sheets": [{"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}} for t in TABS]}
     created = api.create(body=body, fields="spreadsheetId,sheets.properties").execute()
@@ -81,8 +81,8 @@ def create(api, title: str, settings: list[list]) -> str:
 
 
 def ensure_tabs(api, sid: str) -> None:
-    """Вкладки и колонки, появившиеся в новых фазах, дописываются в уже созданную таблицу.
-    Новые колонки добавляются только в конец, поэтому старые строки не съезжают."""
+    """Tabs and columns added in later phases are appended to an existing spreadsheet.
+    New columns are only added at the end, so existing rows don't shift."""
     have = {s["properties"]["title"] for s in api.get(spreadsheetId=sid, fields="sheets.properties.title").execute()["sheets"]}
     missing = [t for t in TABS if t not in have]
     if missing:
@@ -93,7 +93,7 @@ def ensure_tabs(api, sid: str) -> None:
 
 
 def read(api, sid: str, tab: str) -> list[dict]:
-    """Строки как dict; `_row` = номер строки в листе (для update)."""
+    """Rows as dicts; `_row` = the row number in the sheet (for updates)."""
     rows = api.values().get(spreadsheetId=sid, range=f"'{tab}'").execute().get("values", [])
     if not rows:
         return []
@@ -102,7 +102,7 @@ def read(api, sid: str, tab: str) -> list[dict]:
 
 
 def update(api, sid: str, tab: str, rows: list[dict]) -> None:
-    """Перезаписать строки целиком (по `_row`), одним batch-запросом."""
+    """Overwrite whole rows (by `_row`) in a single batch request."""
     head = TABS[tab]
     data = [{"range": f"'{tab}'!A{r['_row']}", "values": [["" if r.get(h) is None else r.get(h) for h in head]]}
             for r in rows]
@@ -111,7 +111,7 @@ def update(api, sid: str, tab: str, rows: list[dict]) -> None:
 
 
 def kv(api, sid: str, tab: str) -> dict[str, dict]:
-    """«_state» / «Настройки»: {ключ: строка}. Колонки: первая = ключ, вторая = значение."""
+    """«_state» / «Настройки»: {key: string}. Columns: first = key, second = value."""
     return {r[TABS[tab][0]]: r for r in read(api, sid, tab)}
 
 

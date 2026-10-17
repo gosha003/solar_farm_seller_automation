@@ -1,6 +1,6 @@
-"""Владельцу: команды Telegram (раздел 15), /stats и утренний дайджест (раздел 10).
-Всё считается из таблицы (единственный источник правды). Команды меняют данные запуска в Ctx,
-в таблицу их пишет approval.main (кроме отметки строк «Ручной очереди» в /sent).
+"""For the owner: Telegram commands, /stats and the morning digest.
+Everything is computed from the sheet (the single source of truth). Commands change the run data in Ctx;
+approval.main writes it to the sheet (except marking «Ручная очередь» rows in /sent).
 """
 from collections import Counter
 from datetime import date, datetime, timedelta
@@ -21,7 +21,7 @@ HELP = """Команды:
 
 
 class Ctx:
-    """Данные одного запуска: читаются один раз в approval.main, команды их только смотрят и меняют settings."""
+    """Data of one run: read once in approval.main; commands only read it and change settings."""
     def __init__(self, api, sid, cfg, stations, by_id, dialogs, settings, state):
         self.api, self.sid, self.cfg = api, sid, cfg
         self.stations, self.by_id, self.dialogs, self.settings, self.state = stations, by_id, dialogs, settings, state
@@ -129,13 +129,13 @@ def local_now(cfg: dict) -> datetime:
 
 
 def digest_due(c: Ctx, now: datetime | None = None) -> bool:
-    """Раз в сутки после digest_hour по времени владельца (Торонто)."""
+    """Once a day after digest_hour in the owner's time zone (Toronto)."""
     now = now or local_now(c.cfg)
     return now.hour >= c.cfg["notify"]["digest_hour"] and c.state.get("дайджест") != now.date().isoformat()
 
 
 def sent(c: Ctx, station_id: str, today: date) -> str:
-    """Владелец сам отправил одобренное сообщение: черновик отправлен, станция ждёт ответа, строка очереди закрыта."""
+    """The owner sent an approved message personally: draft sent, station awaits a reply, queue row closed."""
     st = c.stations.get(station_id.upper())
     if not st:
         return f"Нет станции {station_id}"
@@ -159,7 +159,7 @@ def sent(c: Ctx, station_id: str, today: date) -> str:
 
 
 def note(c: Ctx, station_id: str, text: str, today: date) -> str:
-    """Ответ продавца не по почте (WhatsApp, Viber, звонок): тот же разбор, что у письма в inbox.process."""
+    """Seller reply outside email (WhatsApp, Viber, call): same parsing as for an email in inbox.process."""
     st = c.stations.get(station_id.upper())
     if not st:
         return f"Нет станции {station_id}"
@@ -227,9 +227,9 @@ def command(text: str, c: Ctx, today: date) -> str:
     if cmd == "/sent" and arg:
         return sent(c, arg.split()[0], today)
     if cmd == "/note" and arg:
-        sid_, reply = (arg.split(maxsplit=1) + [""])[:2]  # текст ответа может быть многострочным
+        sid_, reply = (arg.split(maxsplit=1) + [""])[:2]  # the reply text may span several lines
         return note(c, sid_, reply.strip(), today)
-    hints = {"/auto": f"Сейчас режим {c.mode()}. Пришли /auto on или /auto off.",  # нажато из меню без параметра
+    hints = {"/auto": f"Сейчас режим {c.mode()}. Пришли /auto on или /auto off.",  # tapped from the menu without an argument
              "/status": "Пришли /status и id станции, например /status S019.",
              "/blacklist": "Пришли /blacklist и email, телефон или домен.",
              "/sent": "Пришли /sent и id станции, например /sent S020.",

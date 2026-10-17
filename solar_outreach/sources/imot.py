@@ -1,8 +1,8 @@
-"""imot.bg: раздел «Бизнес имоти», у брокеров там отдельный тип объявления «СОЛАРЕН ПАРК».
-Категории под него нет, поэтому листаем весь раздел и берём карточки с этим типом (в карточке уже цена, площадь,
-начало описания и телефон). Раздел большой (~200 страниц по 20), поэтому запуск раз в сутки.
-С VM (адрес облака) сайт отдаёт 403 и это не обходится, поэтому источник идёт с ПК владельца: search --only imot.bg.
-robots.txt: Disallow пуст. Кодировка windows-1251: Fetcher определяет её сам."""
+"""imot.bg: the «Бизнес имоти» section, where brokers have a separate listing type «СОЛАРЕН ПАРК».
+There is no category for it, so we page through the whole section and take cards of that type (a card already has
+price, area, the start of the description and a phone). The section is large (~200 pages of 20), so it runs once a day.
+The site returns 403 to the VM (a cloud IP) and that isn't worked around, so this source runs from the owner's PC:
+search --only imot.bg. robots.txt: Disallow is empty. Encoding windows-1251: Fetcher detects it."""
 import re
 
 from bs4 import BeautifulSoup
@@ -15,7 +15,7 @@ TYPE = "СОЛАРЕН ПАРК"
 
 
 def card_links(html: str) -> tuple[int, dict[str, str]]:
-    """(число карточек на странице, {ссылка: текст карточки} только для типа «СОЛАРЕН ПАРК»)."""
+    """(number of cards on the page, {link: card text} only for the «СОЛАРЕН ПАРК» type)."""
     soup = BeautifulSoup(html, "html.parser")
     items, out = soup.select("div.item"), {}
     for it in items:
@@ -32,7 +32,7 @@ def parse_ad(url: str, html: str) -> Listing:
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
-    cut = text.find("Виж карта")  # заголовок страницы повторяется дважды, место берём из последнего
+    cut = text.find("Виж карта")  # the page title repeats twice; the place is taken from the last one
     place = text[:cut].upper().rsplit(TYPE, 1)[-1] if cut > 0 else ""
     location = re.sub(r"^(град|гр\.|с\.|село)\s+", "", text[:cut][len(text[:cut]) - len(place):].strip(" ,")) if place else ""
     price = re.search(r"Виж карта\s*([\d ]+€)", text)

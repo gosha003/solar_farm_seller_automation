@@ -1,6 +1,6 @@
-"""Поиск брокеров и агентств, которые продают готовые ФЕЦ 1-2 МВт и участки под ФЕЦ (не по объявлению).
-Claude только находит сайты; контакты берём со страниц сами (Fetcher: robots.txt, пауза), выдуманные ссылки
-и адреса отсекаются. Раз в неделю: python -m solar_outreach.search --brokers
+"""Search for brokers and agencies that sell operating 1-2 MW PV plants and plots for PV (not tied to a listing).
+Claude only finds the sites; contacts are taken from the pages by our own code (Fetcher: robots.txt, pauses), and invented
+links and addresses are dropped. Weekly: python -m solar_outreach.search --brokers
 """
 import re
 from urllib.parse import urljoin, urlparse
@@ -23,7 +23,7 @@ such as bazar.bg, alo.bg, olx.bg, imot.bg, news, directories, installers or equi
 If none, answer NONE."""
 SKIP_HOSTS = ("bazar.bg", "alo.bg", "olx.bg", "imot.bg", "kpd.bg", "facebook.com", "linkedin.com", "youtube.com",
               "instagram.com", "wikipedia.org")
-# версия 20260209 фильтрует результаты кодом и на этом запросе отказывалась перечислять компании (NONE)
+# version 20260209 filters results with code and refused to list companies for this query (NONE)
 TOOL = "web_search_20250305"
 CONTACT = re.compile(r"контакт|contact|за нас|about", re.I)
 
@@ -34,7 +34,7 @@ def links(fetch) -> dict[str, str]:
 
 
 def contacts(html: str) -> tuple[list[str], list[str], str]:
-    """(emails, phones, ссылка на страницу контактов) из видимого текста и mailto:/tel: ссылок."""
+    """(emails, phones, contact-page link) from the visible text and mailto:/tel: links."""
     soup = BeautifulSoup(html, "html.parser")
     hrefs = [a["href"] for a in soup.find_all("a", href=True)]
     text = soup.get_text(" ") + " " + " ".join(h.removeprefix("mailto:") for h in hrefs if h.startswith("mailto:"))
@@ -45,7 +45,7 @@ def contacts(html: str) -> tuple[list[str], list[str], str]:
 
 
 def parse_ad(url: str, html: str, name: str, fetch) -> Listing:
-    """Контакты с указанной страницы; если email нет, одна попытка на странице контактов того же сайта."""
+    """Contacts from the given page; if there is no email, one attempt on the same site's contact page."""
     emails, phones, page = contacts(html)
     host = urlparse(url).netloc
     if not emails and page and urlparse(urljoin(url, page)).netloc == host and (more := fetch(urljoin(url, page))):

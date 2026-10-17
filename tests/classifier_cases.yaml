@@ -1,5 +1,5 @@
-# Раздел 14: ответы продавцов -> ожидаемая итоговая категория (после inbox.decide).
-# «escalate» = любая категория эскалации (price_discussion..other): важно, что владелец получит срочно.
+# Seller replies -> expected final category (after inbox.decide).
+# "escalate" = any escalation category (price_discussion..other): what matters is that the owner is alerted urgently.
 - {expect: info_provided, text: "Здравейте, централата работи от 2019 г., присъединена мощност 1 MW по договор с ЕРП Север. Цената е 820 000 евро."}
 - {expect: info_provided, text: "Да, обявата е актуална. Имаме нотариален акт за земята на фирмата, разрешение за строеж и договор за присъединяване. Панели JA Solar, инвертори Huawei."}
 - {expect: info_provided, text: "Hello, the plant is operating since 2021 on the free market through a trader. Asking price is EUR 1.2M for the SPV."}

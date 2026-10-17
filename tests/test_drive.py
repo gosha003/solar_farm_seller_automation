@@ -26,4 +26,4 @@ def test_only_safe_types_saved_into_station_folder(monkeypatch):
     assert out == ["notarialen_akt.PDF: https://drive/notarialen_akt.PDF", "invoice.exe (не сохранено: тип .exe)",
                    "snimka.jpg: https://drive/snimka.jpg"]
     assert [b["name"] for b in files.created] == ["Solar BG вложения", "S019", "notarialen_akt.PDF", "snimka.jpg"]
-    assert files.created[3]["parents"] == ["F2"]                # папка станции создаётся один раз
+    assert files.created[3]["parents"] == ["F2"]                # the station folder is created once

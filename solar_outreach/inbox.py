@@ -1,10 +1,10 @@
-"""Шаг 3 цикла (раздел 9): входящие в тредах SolarBG -> классификация -> факты в таблицу -> действие.
+"""Inbox step of the loop: incoming mail in SolarBG threads -> classification -> facts into the sheet -> action.
 
-Действия:
-  info_provided / question_we_can_answer -> черновик ответа (недостающие пункты) на одобрение
-  price_discussion ... suspicious, other, низкая уверенность -> СРОЧНО владельцу, диалог на паузу
-  not_interested_or_stop / sold -> вкладка «Отказы» (автоматически больше не пишем), диалог закрыт
-  auto_reply -> ничего; broker_redirect -> новый контакт как новый продавец; bounce -> чёрный список + счётчик
+Actions:
+  info_provided / question_we_can_answer -> reply draft (missing checklist items) for approval
+  price_discussion ... suspicious, other, low confidence -> URGENT to the owner, dialog paused
+  not_interested_or_stop / sold -> «Отказы» tab (never written to automatically again), dialog closed
+  auto_reply -> nothing; broker_redirect -> the new contact becomes a new seller; bounce -> blacklist + counter
 """
 import re
 from datetime import date
@@ -15,16 +15,16 @@ from solar_outreach import drafts, drive, gmail_client as gmail, llm, notify, ru
 ESCALATE = {"price_discussion", "counteroffer", "wants_call_or_meeting", "asks_who_are_you", "asks_for_docs_or_nda",
             "asks_money", "suspicious", "other"}
 CLOSE = {"not_interested_or_stop": "отказ", "sold": "отказ"}
-# Независимо от LLM: явные попытки prompt injection / фишинга -> suspicious, даже если модель «согласилась».
+# Independent of the LLM: obvious prompt-injection / phishing attempts -> suspicious, even if the model "agreed".
 INJECTION = re.compile(
     r"ignore (all |any |the )?(previous|prior|above) (instructions|rules|prompts?)|disregard (all |the )?(previous|above)"
     r"|system prompt|you are (an? )?(ai|bot|language model|assistant)|as an ai\b|send (me )?(your|the) (password|login|"
     r"bank|card|passport|data)|игнорир\w* (все |всички )?(предыдущ|предишн|правил|инструкц)|забудь\w* (все )?(правил|инструкц)"
     r"|системн\w* (промпт|инструкц)|изпратете (ни )?(парола|данни за карта)|перейд\w* по ссылк|кликн\w* (на|по) (линк|ссылк)",
     re.I)
-OWNER_LED = "ведёт владелец"  # переписку ведёт владелец сам: бот записывает ответ и сообщает, но не отвечает
-ALO = re.compile(r"@([\w-]+\.)*alo\.bg$")  # уведомления alo.bg об ответах продавцов (ответить можно только на сайте)
-ALO_NOTICE = re.compile(r"ново съобщение|new message", re.I)  # в письме alo только ссылка, текст ответа лежит в кабинете
+OWNER_LED = "ведёт владелец"  # the owner runs this conversation: the bot records the reply and notifies, but never answers
+ALO = re.compile(r"@([\w-]+\.)*alo\.bg$")  # alo.bg notifications about seller replies (they can only be answered on the site)
+ALO_NOTICE = re.compile(r"ново съобщение|new message", re.I)  # the alo email has only a link; the reply text is in the alo.bg account
 GREETING = {"bg": "Здравейте,", "en": "Hello,", "ru": "Здравствуйте,"}
 
 
@@ -36,10 +36,10 @@ def blacklisted(contact: str, blacklist: list[dict]) -> bool:
 
 
 def station_by_ad(stations: dict, text: str) -> dict | None:
-    """Станция по номеру объявления из текста письма: ссылки alo/bazar оканчиваются на номер."""
+    """Station by the listing number in the email text: alo/bazar links end with the number."""
     ids = set(re.findall(r"\d{7,9}", text))
     hits = [s for s in stations.values() if ids & set(re.findall(r"\d{7,9}$", s["ссылка"].rstrip("/").split(".html")[0]))]
-    if len(hits) != 1:  # номера нет в письме: заголовок объявления (alo ставит его в тему диалога), потом имя продавца
+    if len(hits) != 1:  # no number in the email: the listing title (alo puts it in the dialog subject), then the seller name
         low = text.lower()
         waiting = [s for s in stations.values() if s.get("статус переписки") == "ждём ответа"]
         for field in ("заголовок", "продавец"):
@@ -54,7 +54,7 @@ def thread_url(thread_id: str) -> str:
 
 
 def decide(category: str, confidence: str, body: str) -> str:
-    """Итоговая категория: regex-инъекция побеждает LLM; низкая уверенность = other (эскалация)."""
+    """Final category: a regex injection hit beats the LLM; low confidence = other (escalation)."""
     if INJECTION.search(body):
         return "suspicious"
     if confidence == "low" and category not in ESCALATE | set(CLOSE) | {"auto_reply"}:
@@ -75,7 +75,7 @@ def missing_items(st: dict) -> list[str]:
 
 
 def reply_body(st: dict, c: llm.Classification) -> str:
-    """Ответ продавцу: ответы на его вопросы (только факты о покупателе) + недостающие пункты раздела 3."""
+    """Reply to the seller: answers to their questions (buyer facts only) + the missing checklist items."""
     lang = c.language
     para = llm.answer_questions(c.seller_questions, lang).paragraph.strip() if c.seller_questions else ""
     body = drafts.second(st, lang)
@@ -83,7 +83,7 @@ def reply_body(st: dict, c: llm.Classification) -> str:
 
 
 def manual_reply_draft(st: dict, c: llm.Classification, did: str) -> dict:
-    """/note: продавец ответил в WhatsApp/Viber/на почту владельца; отвечает владелец сам (Ручная очередь)."""
+    """/note: the seller answered on WhatsApp/Viber/the owner's mailbox; the owner replies personally («Ручная очередь»)."""
     lang, body = c.language, reply_body(st, c)
     channel = "email (вручную)" if st["канал"] == "email" else st["канал"]
     to = st.get("телефон") if channel.startswith("телефон") else st.get("email") if "email" in channel else st["ссылка"]
@@ -104,7 +104,7 @@ def reply_draft(st: dict, msg: dict, c: llm.Classification, did: str) -> dict:
 
 
 def save_files(st: dict | None, msg: dict, svc) -> list[str]:
-    """Вложения в Drive (папка станции). Сбой Drive не роняет разбор письма: тогда только имена."""
+    """Attachments to Drive (station folder). A Drive failure doesn't break parsing the email: then names only."""
     names = gmail.attachments(msg)
     if not names or not st:
         return names
@@ -115,8 +115,8 @@ def save_files(st: dict | None, msg: dict, svc) -> list[str]:
 
 
 def process(api, sid, svc, auto: bool = False) -> dict:
-    """Обработать все новые входящие. auto (/auto on): черновик ответа без нарушений правил одобряется сам
-    (раздел 10), эскалации от этого не меняются. Возвращает счётчики для лога/дайджеста."""
+    """Process all new incoming mail. auto (/auto on): a reply draft without rule violations approves itself;
+    escalations are unaffected. Returns counters for the log/digest."""
     stations = {r["id"]: r for r in sheets.read(api, sid, "Станции")}
     dialogs = sheets.read(api, sid, "Диалоги")
     blacklist = sheets.read(api, sid, "Чёрный список")
@@ -158,7 +158,7 @@ def process(api, sid, svc, auto: bool = False) -> dict:
                     new_dialogs.append({"id станции": st["id"], "направление": "in", "дата": date.today().isoformat(),
                                         "канал": "alo.bg", "язык": "", "краткое содержание": "[ответ на alo] уведомление без текста",
                                         "тред Gmail": msg["threadId"]})
-            gmail.mark_done(svc, msg)  # остальное от alo (регистрация, вход через Google) не диалог
+            gmail.mark_done(svc, msg)  # anything else from alo (sign-up, Google sign-in) is not a dialog
             continue
         files = save_files(st, msg, svc)
         try:
@@ -202,7 +202,7 @@ def process(api, sid, svc, auto: bool = False) -> dict:
                 st["статус переписки"] = "квалифицирована"
                 notify.urgent(f"✅ {sid_} полностью квалифицирована: все пункты раздела 3 получены.\n{st['ссылка']}")
             else:
-                manual = bool(ALO.search(frm))  # на noreply@alo.bg не ответить: текст владельцу, отправляет сам на сайте
+                manual = bool(ALO.search(frm))  # noreply@alo.bg can't be answered: the text goes to the owner, who replies on the site
                 try:
                     did = f"D{n_drafts + len(new_drafts) + 1:03d}"
                     d = manual_reply_draft(st, c, did) if manual else reply_draft(st, msg, c, did)
@@ -210,7 +210,7 @@ def process(api, sid, svc, auto: bool = False) -> dict:
                     notify.urgent(f"⚠️ {sid_}: не смог составить ответ ({e}). Тред: {thread_url(msg['threadId'])}")
                 else:
                     if auto and not d["нарушения правил"] and not manual:
-                        d["статус"] = "одобрено"  # режим включает только владелец (/auto on); уйдёт в approval.main
+                        d["статус"] = "одобрено"  # only the owner switches the mode (/auto on); handled in approval.main
                     else:
                         d["tg сообщение"] = notify.send(_card(d, st, summary), notify.draft_buttons(d["id"]))
                     new_drafts.append(d)

@@ -1,4 +1,4 @@
-"""Канал связи по приоритету раздела 10: email (авто) > телефон (ручная очередь) > сайт (ручная очередь)."""
+"""Contact channel by priority: email (automatic) > phone (manual queue) > website (manual queue)."""
 
 
 def channel(emails: list[str], phones: list[str]) -> str:

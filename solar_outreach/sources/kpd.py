@@ -1,12 +1,12 @@
-"""kpd.bg (продажа бизнеса): первые страницы категорий; поиск по словам там через PRADO-postback, не трогаем.
-robots.txt нет (сайт отдаёт HTML) = ограничений нет. Email продавца в HTML защищён Cloudflare (data-cfemail)."""
+"""kpd.bg (businesses for sale): first pages of the categories; keyword search there is a PRADO postback, left alone.
+No robots.txt (the site returns HTML) = no restrictions. The seller's email is Cloudflare-protected in the HTML (data-cfemail)."""
 import re
 
 from bs4 import BeautifulSoup
 
 from solar_outreach.sources import Listing
 
-CATEGORIES = [26, 9, 13]  # Бизнес Имоти, Индустрия, Други
+CATEGORIES = [26, 9, 13]  # Бизнес Имоти, Индустрия, Други (business properties, industry, other)
 
 
 def cf_decode(hexstr: str) -> str:

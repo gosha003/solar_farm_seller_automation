@@ -1,9 +1,9 @@
-"""Вложения продавцов -> Google Drive (разделы 4, 5): папка на станцию внутри «Solar BG вложения».
-Сохраняем только PDF, изображения и DOCX, ничего не открываем и не запускаем. Остальные типы: только имя в «Диалогах».
-scope drive.file: система видит в Drive только то, что создала сама.
+"""Seller attachments -> Google Drive: one folder per station inside «Solar BG вложения».
+Only PDF, images and DOCX are saved; nothing is opened or executed. Other types: name only, in «Диалоги».
+scope drive.file: the system sees only the Drive files it created itself.
 
-ponytail: текст из вложений не извлекается (раздел 4 разрешает безопасный парсер); добавить, когда понадобится
-автоматически читать документы, а не только хранить их для владельца.
+ponytail: no text is extracted from attachments; add a safe parser when documents must be read
+automatically rather than just stored for the owner.
 """
 from functools import cache
 from googleapiclient.discovery import build
@@ -18,7 +18,7 @@ ALLOWED = {".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-o
            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".heic": "image/heic", ".webp": "image/webp"}
 
 
-@cache  # один клиент на процесс: build() на каждый проход демона течёт (1.5 ГБ за сутки)
+@cache  # one client per process: build() on every daemon pass leaks memory (1.5 GB a day)
 def service():
     return build("drive", "v3", credentials=credentials(), cache_discovery=False).files()
 
@@ -34,12 +34,12 @@ def folder(files, name: str, parent: str = "") -> str:
 
 
 def save(files, gsvc, msg: dict, station_id: str) -> list[str]:
-    """Сохранить вложения письма в папку станции. Возвращает строки для «Диалогов» и уведомлений."""
+    """Save a letter's attachments to the station folder. Returns lines for «Диалоги» and alerts."""
     out, dest = [], ""
     for part in gmail.attachment_parts(msg):
         name = part["filename"]
         ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
-        if ext not in ALLOWED:  # по расширению, а не по mimeType из письма: его задаёт отправитель
+        if ext not in ALLOWED:  # by file extension, not the mimeType in the email: the sender controls that
             out.append(f"{name} (не сохранено: тип {ext or '?'})")
             continue
         dest = dest or folder(files, station_id, folder(files, ROOT))
