@@ -20,16 +20,16 @@ def test_schedule_4_then_9_days_in_same_thread():
     assert due([FIRST, up1], "2026-10-09") == []
     assert due([FIRST, up1], "2026-10-10")[0]["тип"] == "дожим 2"
     up2 = {**up1, "id": "D003", "тип": "дожим 2"}
-    assert due([FIRST, up1, up2], "2026-12-01") == []           # максимум 2 дожима
+    assert due([FIRST, up1, up2], "2026-12-01") == []           # at most 2 follow-ups
 
 
 def test_reply_skip_or_pending_cancels():
     reply = {"id станции": "S001", "направление": "in", "краткое содержание": "[info_provided] да"}
     assert due([FIRST], "2026-10-05", [reply]) == []
     auto = {**reply, "краткое содержание": "[auto_reply] отпуск"}
-    assert len(due([FIRST], "2026-10-05", [auto])) == 1          # автоответ не отменяет
+    assert len(due([FIRST], "2026-10-05", [auto])) == 1          # an auto-reply doesn't cancel
     skipped = {**FIRST, "id": "D002", "тип": "дожим 1", "статус": "пропущено", "отправлено": ""}
-    assert due([FIRST, skipped], "2026-10-20") == []            # владелец пропустил: дальше не дожимаем
+    assert due([FIRST, skipped], "2026-10-20") == []            # the owner skipped it: no more follow-ups
     assert due([FIRST], "2026-10-05", stations={"S001": {"id": "S001", "статус переписки": "эскалация"}}) == []
     assert due([{**FIRST, "отправлено": "DRY_RUN"}], "2026-10-20") == []
     assert due([{**FIRST, "тип": "первое, ТЕСТ"}], "2026-10-20") == []
@@ -40,4 +40,4 @@ def test_manual_first_message_gets_manual_followup():
     [d] = due([manual], "2026-10-05")
     assert d["канал"] == "сайт (ручная)" and d["тред Gmail"] == ""
     [e] = due([{**FIRST, "тред Gmail": ""}], "2026-10-05")
-    assert e["канал"] == "email (вручную)"                       # своя почта владельца: система не отправит
+    assert e["канал"] == "email (вручную)"                       # the owner's own mailbox: the system won't send

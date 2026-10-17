@@ -1,7 +1,7 @@
-"""Черновики писем (раздел 7): язык, частник/брокер, подстановка фактов из объявления, ссылки ручной очереди.
+"""Letter drafts: language, private seller vs broker, facts from the listing, manual-queue links.
 
-ponytail: описание станции собирается детерминированно из полей таблицы (мощность, место), а не LLM:
-ноль выдуманных фактов и ноль затрат. LLM подключается только на «Править» владельца (llm.rewrite).
+ponytail: the station description is built deterministically from sheet fields (power, place), not by the LLM:
+zero invented facts and zero cost. The LLM is used only when the owner taps «Править» (llm.rewrite).
 """
 import re
 from functools import cache
@@ -27,7 +27,7 @@ def template(lang: str) -> dict:
 
 
 def language(text: str) -> str:
-    """bg по умолчанию; en, если латиницы больше кириллицы; ru, если есть ы/э/ё (в болгарском их нет)."""
+    """bg by default; en if there is more Latin than Cyrillic; ru if ы/э/ё appear (Bulgarian has none of them)."""
     lat, cyr = len(re.findall(r"[A-Za-z]", text)), len(re.findall(r"[А-Яа-яЁё]", text))
     if lat > cyr:
         return "en"
@@ -35,7 +35,7 @@ def language(text: str) -> str:
 
 
 def is_general(row: dict) -> bool:
-    """Брокер, найденный поиском, а не по объявлению: письмо без «Видях Вашата обява», цена спрашивается всегда."""
+    """A broker found by search rather than through a listing: the letter skips «Видях Вашата обява» and always asks the price."""
     return row.get("площадка", "").startswith("broker:")
 
 
@@ -56,7 +56,7 @@ def power_text(kw) -> str:
 
 
 def description(row: dict, lang: str) -> tuple[str, str]:
-    """(описание для «Видях Вашата обява за ...», ref для темы). Только факты из таблицы."""
+    """(description for «Видях Вашата обява за ...», ref for the subject). Sheet facts only."""
     noun = {"bg": "фотоволтаична централа", "en": "a photovoltaic plant", "ru": "фотоэлектрическая станция"}[lang]
     where = {"bg": "в района на", "en": "in the area of", "ru": "в районе"}[lang]
     power = power_text(row.get("мощность кВт"))
@@ -82,13 +82,13 @@ def first(row: dict, lang: str) -> tuple[str, str]:
     extra = f"{t['first']['broker_extra']}\n\n" if is_broker(row) else ""
     questions = t["first"]["questions"]
     if str(row.get("цена EUR", "")).replace(".", "").isdigit():
-        questions = questions[:-1]  # цена уже в объявлении; в шаблонах вопрос про цену всегда последний
+        questions = questions[:-1]  # the price is already in the listing; in the templates the price question is always last
     body = f"{intro}\n{numbered(questions)}\n\n{extra}{t['first']['outro']}\n\n{t['signature']}"
     return t["first"]["subject"].format(ref=ref), body
 
 
 def second(row: dict, lang: str) -> str:
-    """Только вопросы, на которые ещё нет ответа (статус в ячейке не начинается с «получен»/«отказ»)."""
+    """Only questions with no answer yet (the cell status doesn't start with «получен»/«отказ»)."""
     t = template(lang)["second"]
     answered = lambda key: str(row.get(key, "")).startswith(("получен", "отказ"))
     qs = [q for key, q in t["questions"].items()
@@ -102,6 +102,6 @@ def followup(lang: str, date: str, general: bool = False) -> str:
 
 
 def manual_links(phone: str, text: str) -> tuple[str, str]:
-    """WhatsApp с готовым текстом; Viber текст не подставляет, его даём рядом для копирования."""
+    """WhatsApp gets the prefilled text; Viber can't prefill, so the text is given next to it for copying."""
     digits = re.sub(r"\D", "", phone)
     return f"https://wa.me/{digits}?text={quote(text)}", f"viber://chat?number=%2B{digits}"

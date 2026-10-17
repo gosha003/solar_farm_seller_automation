@@ -1,5 +1,5 @@
-"""bazar.bg: поиск /obiavi?q=..., страница объявления отдаёт JSON-LD (name, description, areaServed).
-Телефон за кнопкой «покажи» не берём: только то, что продавец сам написал в тексте."""
+"""bazar.bg: search /obiavi?q=..., the listing page carries JSON-LD (name, description, areaServed).
+The phone behind the «покажи» button is not taken: only what the seller wrote in the text."""
 import re
 from urllib.parse import quote
 
@@ -22,7 +22,7 @@ def ad_links(html: str) -> dict[str, str]:
 
 
 def parse_ad(url: str, html: str) -> Listing:
-    """HTML, не JSON-LD: JSON-LD у bazar бывает разной формы (Service / @graph), разметка страницы стабильнее."""
+    """HTML, not JSON-LD: bazar's JSON-LD comes in different shapes (Service / @graph); the page markup is more stable."""
     soup = BeautifulSoup(html, "html.parser")
     h1 = soup.select_one("h1.classifiedTitle") or soup.find("h1")
     if h1 and h1.span:

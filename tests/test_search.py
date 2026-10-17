@@ -47,8 +47,8 @@ def test_rows_dedup_by_contact_and_title_but_not_empty_title():
     b = search.to_row(Listing("y", "u2", "Друга обява ФЕЦ 1.5 MW", "0888 123 456"), CFG)
     c = search.to_row(Listing("x", "u3", ""), CFG)
     d = search.to_row(Listing("x", "u4", ""), CFG)
-    assert search.keys(a) & search.keys(b)          # тот же телефон и мощность
-    assert not search.keys(c) & search.keys(d)      # пустые заголовки не склеиваются
+    assert search.keys(a) & search.keys(b)          # same phone and power
+    assert not search.keys(c) & search.keys(d)      # empty titles don't merge
 
 
 def test_ids_continue_after_max_existing():

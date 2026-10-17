@@ -1,12 +1,12 @@
-"""Поиск (шаг 6 цикла): площадки -> парсинг -> дедуп -> скоринг -> вкладка «Станции».
+"""Search step: sites -> parsing -> dedup -> scoring -> «Станции» tab.
 
-    python -m solar_outreach.search            # пишет в Google Sheet (создаёт при первом запуске)
-    python -m solar_outreach.search --local    # только печать, без Sheets
-    python -m solar_outreach.search --web      # плюс веб-поиск через Claude (платно, раз в сутки)
-    python -m solar_outreach.search --only pc        # imot.bg + olx.bg: с VM они дают 403, запускаются на ПК владельца
-                                                     # (или --only imot.bg / --only olx.bg по отдельности)
-    python -m solar_outreach.search --regions  # веб-поиск отдельно по областям Монтана, Видин, Добрич, Шумен, Ямбол, Хасково, Кърджали (платно)
-    python -m solar_outreach.search --brokers  # только поиск брокеров (платно, раз в неделю), строки «брокер:сайт»
+    python -m solar_outreach.search            # writes to the Google Sheet (creates it on first run)
+    python -m solar_outreach.search --local    # print only, no Sheets
+    python -m solar_outreach.search --web      # plus web search via Claude (paid, once a day)
+    python -m solar_outreach.search --only pc        # imot.bg + olx.bg: they return 403 to the VM, so they run on the owner's PC
+                                                     # (or --only imot.bg / --only olx.bg separately)
+    python -m solar_outreach.search --regions  # web search per province: Montana, Vidin, Dobrich, Shumen, Yambol, Haskovo, Kardzhali (paid)
+    python -m solar_outreach.search --brokers  # broker search only (paid, weekly), rows `broker:<site>`
 """
 import os
 import re
@@ -23,7 +23,7 @@ from solar_outreach.qualify import qualify
 from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, brokers, imot, is_station_sale, kpd, olx, web
 
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
-PC_SOURCES = {"imot.bg": imot, "olx.bg": olx}  # с VM дают 403: запускаются только с ПК владельца (--only pc = оба)
+PC_SOURCES = {"imot.bg": imot, "olx.bg": olx}  # they return 403 to the VM: run only from the owner's PC (--only pc = both)
 ORDER = {"A": 0, "B": 1, "C": 2, "-": 3}
 
 
@@ -45,7 +45,7 @@ def to_row(l, cfg) -> dict:
 
 
 def broker_row(l) -> dict:
-    """Брокер без объявления: строка «Станции» с неизвестными мощностью и ценой, приоритет B (писать всем найденным)."""
+    """A broker without a listing: a «Станции» row with unknown power and price, priority B (write to everyone found)."""
     em, ph = l.extra["emails"], l.extra["phones"]
     return {"дата найдено": date.today().isoformat(), "площадка": l.source.replace(": ", ":"), "ссылка": l.url,
             "заголовок": l.title, "регион": "неизвестно", "мощность кВт": "неизвестно", "цена EUR": "неизвестно",
@@ -56,8 +56,8 @@ def broker_row(l) -> dict:
 
 
 def keys(r: dict) -> set:
-    """Дедуп по ТЗ: ссылка, телефон, email, заголовок+мощность+регион.
-    ponytail: телефон/email сравниваются вместе с мощностью, иначе у агентства все станции схлопнутся в одну."""
+    """Dedup keys: link, phone, email, title+power+region.
+    ponytail: phone/email are compared together with power, otherwise all of an agency's stations would collapse into one."""
     kw = str(r.get("мощность кВт", ""))
     title = re.sub(r"\W+", " ", r["заголовок"].lower()).strip()
     out = {("url", r["ссылка"])}
@@ -68,8 +68,8 @@ def keys(r: dict) -> set:
 
 
 def listings(name, src, fetch, known_urls: set, crit: dict):
-    """Страницу объявления открываем только если её нет в таблице и мощность из заголовка не заведомо мимо.
-    Заведомо мимо (мелкая/крупная) пишем по одному заголовку: меньше запросов, площадки не блокируют."""
+    """Open a listing page only if it isn't in the sheet yet and the title's power isn't clearly out of range.
+    Clearly out of range (too small/too large) is recorded from the title alone: fewer requests, no blocks from the sites."""
     for url, title in src.links(fetch).items():
         if url in known_urls or not is_station_sale(title):
             continue
@@ -81,8 +81,8 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
             html = fetch(url)
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
-                raise  # площадка просит остановиться: прекращаем её до следующего запуска
-            continue  # одна битая страница (503, 500) не останавливает площадку
+                raise  # the site asks us to stop: skip it until the next run
+            continue  # one broken page (503, 500) doesn't stop the site
         if html:
             yield src.parse_ad(url, html)
 
@@ -118,7 +118,7 @@ def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: b
     active = ({} if find_brokers_too else {"web": by_region} if regions else
               {k: v for k, v in PC_SOURCES.items() if only in (k, "pc")} if only else
               {**SOURCES, **({"web": web} if use_web else {})})
-    if find_brokers_too:  # отдельный запуск раз в неделю: только брокеры
+    if find_brokers_too:  # separate weekly run: brokers only
         try:
             new += find_brokers(fetch, seen)
         except Exception as e:
@@ -135,21 +135,21 @@ def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: b
                     continue
                 seen |= k
                 new.append(row)
-        except Exception as e:  # площадка легла/заблокировала: отмечаем, не обходим
+        except Exception as e:  # site down or blocking us: record it, never work around it
             failed[name] = f"{type(e).__name__}: {e}"[:200]
         print(f"{name}: готово, всего новых {len(new)}", flush=True)
 
     new.sort(key=lambda r: (ORDER[r["приоритет"]], -r["скоринг"]))
     if local:
         number(new, existing)
-    else:  # блокировка только на запись: бот не ждёт, пока идёт поиск по сайтам
+    else:  # lock only for writing: the bot doesn't wait while the site search runs
         with single_run("sheet", stale_sec=3600, wait=900):
-            existing = sheets.read(api, sid, "Станции")  # пока искали, цикл мог добавить станцию (broker_redirect)
+            existing = sheets.read(api, sid, "Станции")  # while we were searching, the loop may have added a station (broker_redirect)
             seen = set().union(*(keys(r) for r in existing))
             new = [r for r in new if not keys(r) & seen]
             number(new, existing)
             sheets.append(api, sid, "Станции", new)
-            down = "; ".join(f"{k}: {v}" for k, v in failed.items() if k not in UNAVAILABLE)  # для дайджеста
+            down = "; ".join(f"{k}: {v}" for k, v in failed.items() if k not in UNAVAILABLE)  # for the digest
             sheets.set_kv(api, sid, "_state", {"площадки недоступны": down})
 
     write = [r for r in new if r["приоритет"] != "-"]

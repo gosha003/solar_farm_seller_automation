@@ -18,7 +18,7 @@ def test_only_urls_seen_in_search_results_are_accepted():
     results = [SimpleNamespace(url="https://bp.bg/imot-1/", title="ФЕЦ 1 MW за продажба"),
                SimpleNamespace(url="https://news.bg/a", title="Новина")]
     answer = ("1. https://bp.bg/imot-1 | 1 MW 790 000 EUR Разград\n"
-              "- <https://invented.bg/x> | 2 MW\n"                       # нет в результатах поиска
+              "- <https://invented.bg/x> | 2 MW\n"                       # not in the search results
               "NONE")
     r = SimpleNamespace(stop_reason="end_turn", content=[
         block("web_search_tool_result", content=results),

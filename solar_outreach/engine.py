@@ -1,10 +1,11 @@
-"""Главный цикл (раздел 9). Каждый проход идемпотентный, под блокировкой.
+"""Main loop. Every pass is idempotent and runs under a lock.
 
-    python -m solar_outreach.engine            # один проход (cron, отладка)
-    python -m solar_outreach.engine --daemon   # VM: постоянно, ответ в Telegram за секунды (systemd: solar-bot)
+    python -m solar_outreach.engine            # one pass (cron, debugging)
+    python -m solar_outreach.engine --daemon   # VM: runs forever, answers in Telegram within seconds (systemd: solar-bot)
 
-Проход: входящие (шаги 3-4) -> кнопки и команды Telegram, черновики и дожимы, отправка в лимитах, дайджест (2, 5, 7-9).
-Поиск (шаг 6) отдельным процессом `python -m solar_outreach.search` по таймеру: он долгий (паузы к сайтам).
+Pass: inbox (classify, extract facts, escalate) -> Telegram buttons and commands, drafts and follow-ups,
+sending within limits, digest. Search is a separate timed process, `python -m solar_outreach.search`:
+it is slow (polite pauses between site requests).
 """
 import os
 import sys
@@ -18,9 +19,9 @@ import requests
 from solar_outreach import approval, budget, gmail_client, inbox, notify, sheets
 from solar_outreach.config import Busy, load_config, single_run
 
-ALERT_AFTER = 3        # разовые таймауты Telegram/Google не стоят уведомления, серия из трёх стоит
-INBOX_EVERY = 60       # секунд между проверками почты; Telegram между ними ждём long polling'ом
-PING_EVERY = 300       # раз в 5 мин: потолок расходов Google Cloud и HEALTHCHECK_URL (необязательно, внешний пульс)
+ALERT_AFTER = 3        # one-off Telegram/Google timeouts aren't worth an alert; three in a row are
+INBOX_EVERY = 60       # seconds between mail checks; in between we wait on Telegram with long polling
+PING_EVERY = 300       # every 5 min: Google Cloud spending cap and HEALTHCHECK_URL (optional external heartbeat)
 
 
 def run(test_n: int = 0, with_inbox: bool = True) -> int:
@@ -29,15 +30,15 @@ def run(test_n: int = 0, with_inbox: bool = True) -> int:
         api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
         sheets.ensure_tabs(api, sid)
         mode = sheets.kv(api, sid, "Настройки").get("approval_mode", {}).get("значение") or cfg["approval_mode"]
-        stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # дальше approval перечитывает
+        stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
         if stats["входящих"]:
             print("входящие:", stats, flush=True)
     return approval.main(test_n)
 
 
 def failure(err: str) -> None:
-    """Счётчик сбоев подряд в «_state» (approval.main обнуляет его на успешном проходе).
-    Таблица недоступна: счётчик в локальном файле, чтобы не слать уведомление каждую минуту."""
+    """Consecutive-failure counter in «_state» (approval.main resets it on a successful pass).
+    If the sheet is unavailable the counter lives in a local file, so the owner isn't alerted every minute."""
     f = Path(tempfile.gettempdir()) / "solar_outreach_failures"
     try:
         api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
@@ -52,13 +53,13 @@ def failure(err: str) -> None:
 
 
 def once(test_n: int = 0, with_inbox: bool = True) -> int | None:
-    """Проход с обработкой ошибок. Возвращает offset Telegram или None (сбой / занято поиском)."""
+    """A pass with error handling. Returns the Telegram offset, or None (failure / busy with search)."""
     try:
-        with single_run("sheet", wait=600):  # поиск держит блокировку только на время записи
+        with single_run("sheet", wait=600):  # search holds the lock only while writing
             return run(test_n, with_inbox)
     except Busy:
         return None
-    except Exception as e:  # без секретов в тексте: исключения Telegram их уже вычищают
+    except Exception as e:  # no secrets in the text: Telegram exceptions are already scrubbed
         print(f"{datetime.now():%H:%M} ошибка: {type(e).__name__}: {str(e)[:300]}", flush=True)
         failure(f"{type(e).__name__}: {str(e)[:300]}")
         return None
@@ -80,21 +81,21 @@ def daemon() -> None:
             last_ping = time.time()
             try:
                 spent = budget.enforce(load_config()["gcp"]["budget_subscription"], notify.urgent)
-                if spent:  # в таблицу и дайджест: видно, тратит ли проект что-то (внешний IP и т.п.)
+                if spent:  # into the sheet and the digest: shows whether the project spends anything (external IP etc.)
                     sheets.set_kv(sheets.service(), os.environ["SPREADSHEET_ID"], "_state",
                                   {"расходы Google Cloud": f"{datetime.now():%Y-%m-%d %H:%M} {spent}"})
-            except Exception as e:  # сбой проверки бюджета не роняет бота; Google ещё пришлёт письмо
+            except Exception as e:  # a failed budget check doesn't crash the bot; Google still sends an email
                 print(f"бюджет: {type(e).__name__}", flush=True)
             if os.environ.get("HEALTHCHECK_URL"):
                 try:
                     requests.get(os.environ["HEALTHCHECK_URL"], timeout=10)
                 except requests.RequestException:
                     pass
-        try:  # до следующей проверки почты ждём Telegram; нажатие или команда будят цикл сразу
+        try:  # until the next mail check, wait on Telegram; a tap or command wakes the loop at once
             notify.wait(offset, max(1, int(last_inbox + INBOX_EVERY - time.time())))
         except notify.TelegramError:
             time.sleep(10)
-        time.sleep(1)  # пачка нажатий подряд: один проход вместо нескольких (лимит чтений Sheets 60/мин)
+        time.sleep(1)  # a burst of taps: one pass instead of several (Sheets read limit is 60/min)
 
 
 if __name__ == "__main__":

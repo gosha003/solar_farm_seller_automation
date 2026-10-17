@@ -12,7 +12,7 @@ Restart=always
 RestartSec=30
 CPUWeight=500
 OOMScoreAdjust=-500
-# страховка от утечек: при 400 МБ systemd убьёт и перезапустит бот (flock снимется сам)
+# leak safety net: at 400 MB systemd kills and restarts the bot (flock is released automatically)
 MemoryHigh=300M
 MemoryMax=400M
 MemorySwapMax=100M

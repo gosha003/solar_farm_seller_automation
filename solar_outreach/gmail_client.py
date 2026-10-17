@@ -1,8 +1,8 @@
-"""Gmail (раздел 8). Граница безопасности:
-- читаем и меняем ТОЛЬКО треды с меткой SolarBG (проверка в _thread, через неё идёт всё чтение);
-- метку SolarBG сами ставим только письмам от адресов из «Станций» (adopt: решение по From в поиске Gmail, тело не читаем);
-- никаких delete/trash: в модуле их нет;
-- продавцам при DRY_RUN ничего не уходит; владельцу (уведомления, тест Фазы 3) можно.
+"""Gmail. Safety boundary:
+- read and modify ONLY threads labelled SolarBG (checked in _thread, which every read goes through);
+- the SolarBG label is added only to mail from addresses in «Станции» (adopt: decided by From in a Gmail search, the body is not read);
+- no delete/trash: this module has neither;
+- with DRY_RUN nothing goes to sellers; mail to the owner (alerts, end-to-end test) is allowed.
 """
 import base64
 import os
@@ -21,13 +21,13 @@ from solar_outreach.google_auth import credentials
 DONE_SUFFIX = "/обработано"
 
 
-@cache  # один клиент на процесс: build() на каждый проход демона течёт (1.5 ГБ за сутки)
+@cache  # one client per process: build() on every daemon pass leaks memory (1.5 GB a day)
 def service():
     return build("gmail", "v1", credentials=credentials(), cache_discovery=False).users()
 
 
 def label_ids(svc, name: str) -> tuple[str, str]:
-    """(SolarBG, SolarBG/обработано): создаются при первом запуске."""
+    """(SolarBG, SolarBG/обработано): created on first run."""
     have = {l["name"]: l["id"] for l in svc.labels().list(userId="me").execute().get("labels", [])}
     for n in (name, name + DONE_SUFFIX):
         if n not in have:
@@ -37,7 +37,7 @@ def label_ids(svc, name: str) -> tuple[str, str]:
 
 
 def build_message(to: str, subject: str, body: str, cfg: dict, in_reply_to: str = "") -> EmailMessage:
-    """Простой текст, нормальный From с именем, без массовых заголовков (List-Unsubscribe, Precedence и т.п.)."""
+    """Plain text, a normal From with a name, no bulk-mail headers (List-Unsubscribe, Precedence etc.)."""
     owner = cfg["owner"]["email"]
     m = EmailMessage()
     m["From"] = Address(cfg["gmail"]["sender_name"], *owner.split("@"))
@@ -51,7 +51,7 @@ def build_message(to: str, subject: str, body: str, cfg: dict, in_reply_to: str 
 
 
 def send(svc, to: str, subject: str, body: str, thread_id: str = "", in_reply_to: str = "") -> dict:
-    """Отправка с меткой SolarBG. DRY_RUN: продавцам не отправляем, возвращаем {'dry_run': True}."""
+    """Send with the SolarBG label. DRY_RUN: nothing to sellers, returns {'dry_run': True}."""
     cfg = load_config()
     owner = cfg["owner"]["email"].lower()
     if dry_run() and parseaddr(to)[1].lower() != owner:
@@ -65,18 +65,18 @@ def send(svc, to: str, subject: str, body: str, thread_id: str = "", in_reply_to
 
 
 def _thread(svc, thread_id: str, label: str) -> dict | None:
-    """Тред читаем, только если в нём есть наше письмо с меткой SolarBG. Иначе None: чужая почта не наша."""
+    """Read a thread only if it holds our letter labelled SolarBG. Otherwise None: other mail is not ours."""
     t = svc.threads().get(userId="me", id=thread_id, format="full").execute()
     return t if any(label in m.get("labelIds", []) for m in t.get("messages", [])) else None
 
 
-# На общих почтовиках совпадать должен адрес целиком; на корпоративном домене отвечать может коллега (contact@ -> ivan@).
+# On public mail providers the whole address must match; on a corporate domain a colleague may answer (contact@ -> ivan@).
 PUBLIC_MAIL = {"gmail.com", "googlemail.com", "abv.bg", "mail.bg", "dir.bg", "gbg.bg", "yahoo.com", "outlook.com",
                "hotmail.com", "live.com", "icloud.com", "mail.ru", "yandex.ru", "yandex.com", "proton.me", "protonmail.com"}
 
 
 def contact_query(emails: list[str], owner: str) -> str:
-    """Отправители для поиска Gmail: адрес на общем почтовике, иначе весь домен."""
+    """Senders for the Gmail search: the address on a public mail provider, otherwise the whole domain."""
     terms = set()
     for e in (x.strip().lower() for x in emails):
         if "@" in e and e != owner:
@@ -86,8 +86,8 @@ def contact_query(emails: list[str], owner: str) -> str:
 
 
 def adopt(svc, emails: list[str]) -> int:
-    """Письма продавцов без метки SolarBG (ответили с другого адреса домена, переписку начинал владелец вручную):
-    ставим метку, дальше их читает incoming. Сколько писем взяли."""
+    """Seller mail without the SolarBG label (answered from another address on the domain, or the owner started the thread by hand):
+    add the label so incoming() picks it up. Returns how many messages were taken."""
     cfg = load_config()
     who = contact_query(emails, cfg["owner"]["email"].lower())
     if not who:
@@ -107,7 +107,7 @@ def adopt(svc, emails: list[str]) -> int:
 
 
 def incoming(svc) -> list[dict]:
-    """Входящие письма в наших тредах, ещё не помеченные «обработано». Наши собственные письма пропускаем."""
+    """Incoming mail in our threads not yet marked «обработано». Our own messages are skipped."""
     cfg = load_config()
     label, done = label_ids(svc, cfg["gmail"]["label"])
     owner = cfg["owner"]["email"].lower()
@@ -126,7 +126,7 @@ def incoming(svc) -> list[dict]:
 
 
 def mark_done(svc, msg: dict) -> None:
-    """Пометить обработанным: метки SolarBG + SolarBG/обработано. Только для писем из наших тредов (их отдаёт incoming)."""
+    """Mark processed: labels SolarBG + SolarBG/обработано. Only for mail from our threads (incoming returns those)."""
     label, done = label_ids(svc, load_config()["gmail"]["label"])
     svc.messages().modify(userId="me", id=msg["id"], body={"addLabelIds": [label, done], "removeLabelIds": ["UNREAD"]}).execute()
 
@@ -142,7 +142,7 @@ def _parts(part: dict):
 
 
 def text(msg: dict) -> str:
-    """Текст письма: text/plain, иначе text/html без тегов. Цитата прошлых писем отрезается."""
+    """Message text: text/plain, else text/html with tags stripped. Quoted earlier messages are cut off."""
     plain = html = ""
     for p in _parts(msg.get("payload", {})):
         data = p.get("body", {}).get("data")
@@ -165,7 +165,7 @@ def strip_quote(s: str) -> str:
 
 
 def attachment_parts(msg: dict) -> list[dict]:
-    """Части письма с вложениями (filename, mimeType, body.attachmentId). Ничего не открываем и не запускаем."""
+    """Message parts with attachments (filename, mimeType, body.attachmentId). Nothing is opened or executed."""
     return [p for p in _parts(msg.get("payload", {})) if p.get("filename")]
 
 
@@ -174,7 +174,7 @@ def attachments(msg: dict) -> list[str]:
 
 
 def attachment_bytes(svc, msg: dict, part: dict) -> bytes:
-    """Байты вложения. msg приходит только из incoming(), то есть из нашего треда SolarBG."""
+    """Attachment bytes. msg only ever comes from incoming(), i.e. from our SolarBG thread."""
     data = part.get("body", {}).get("data") or svc.messages().attachments().get(
         userId="me", messageId=msg["id"], id=part["body"]["attachmentId"]).execute()["data"]
     return base64.urlsafe_b64decode(data + "==")

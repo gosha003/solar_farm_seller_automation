@@ -1,11 +1,11 @@
-"""Площадки объявлений. Каждый модуль: links(fetch) -> {url: заголовок} и parse_ad(url, html) -> Listing.
-Обход страниц объявлений и отбор по заголовку общий, в search.py.
+"""Listing sites. Each module: links(fetch) -> {url: title} and parse_ad(url, html) -> Listing.
+Crawling listing pages and filtering by title are shared, in search.py.
 
-robots.txt соблюдает Fetcher (свой разбор: стандартный urllib.robotparser не понимает `*` и `$`).
-Проверено вручную 2026-10-08:
-  bazar.bg  /obiavi?q=... и /obiava-* разрешены
-  alo.bg    /searchq/?q=... разрешён, пагинация (/searchq/*page=) запрещена, AJAX показа телефона (?ajax=) запрещён
-Недоступны (причина в UNAVAILABLE) и не обходятся.
+Fetcher enforces robots.txt (own parser: the stdlib urllib.robotparser doesn't understand `*` and `$`).
+Checked by hand 2026-10-08:
+  bazar.bg  /obiavi?q=... and /obiava-* allowed
+  alo.bg    /searchq/?q=... allowed, pagination (/searchq/*page=) disallowed, the phone-reveal AJAX (?ajax=) disallowed
+Unavailable sites (reason in UNAVAILABLE) are not crawled.
 """
 import random
 import re
@@ -22,9 +22,9 @@ UNAVAILABLE = {
     "sales.bcpea.org": "нет поиска по ключевым словам, ФЕЦ не выделены в типах имуществ",
 }
 
-# Объявление о продаже станции: ключевое слово ФЕЦ в заголовке, без услуг/оборудования/покупки.
+# A plant-for-sale listing: the keyword ФЕЦ in the title, no services/equipment/buying.
 PV = re.compile(r"фотовол|фотоволт|фец|фвец|соларе?н\w* (парк|централ)|pv парк|\d\s*(mw|mwp|мвт|мегават)", re.I)
-# Услуги/оборудование/покупка, а также не действующие станции: парцел «за ФЕЦ», проект, разрешение.
+# Services/equipment/buying, and non-operating plants: a plot «за ФЕЦ», a project, a permit.
 NOT_SALE = re.compile(r"изгражд|проектир|монтаж|инвертор|панел|търс|\bкупува|ремарке|^батери|бойлер|компенсир"
                       r"|под наем|сглобен|оборудван|подд?ръжк|профилакт|почиств|кабел|конструкц|система за"
                       r"|за фотовол|за фец|подходящ|проект|уведомление|разрешени|разрешител|за строеж"
@@ -49,7 +49,7 @@ def is_station_sale(title: str) -> bool:
 
 
 def robots_rules(text: str) -> list[tuple[bool, str]]:
-    """Правила группы `User-agent: *` как (allow, pattern)."""
+    """Rules of the `User-agent: *` group as (allow, pattern)."""
     rules, in_star, ua_block = [], False, False
     for line in text.splitlines():
         key, _, value = line.split("#")[0].partition(":")
@@ -65,7 +65,7 @@ def robots_rules(text: str) -> list[tuple[bool, str]]:
 
 
 def robots_allows(rules: list[tuple[bool, str]], path: str) -> bool:
-    """RFC 9309: самое длинное совпавшее правило, при равенстве allow. `*` = что угодно, `$` = конец."""
+    """RFC 9309: the longest matching rule wins, allow on a tie. `*` = anything, `$` = end."""
     best = (-1, True)
     for allow, pattern in rules:
         rx = re.escape(pattern).replace(r"\*", ".*").replace(r"\$", "$")
@@ -74,18 +74,18 @@ def robots_allows(rules: list[tuple[bool, str]], path: str) -> bool:
     return best[1]
 
 
-# OLX (CloudFront) режет TLS-отпечаток Python/OpenSSL: 403 на любой запрос, даже с браузерным UA, а системный curl
-# (Schannel) с тем же честным UA получает 200. Для этих хостов GET идёт через curl; pace, robots.txt и UA те же.
+# OLX (CloudFront) rejects the Python/OpenSSL TLS fingerprint: 403 on every request, even with a browser UA, while system curl
+# (Schannel) with the same honest UA gets 200. GETs to these hosts go through curl; pacing, robots.txt and UA are the same.
 CURL_HOSTS = {"www.olx.bg"}
 
 
 class CurlResponse:
-    """Минимум от requests.Response, который читает Fetcher."""
+    """The minimum of requests.Response that Fetcher reads."""
 
     def __init__(self, status: int, text: str):
         self.status_code, self.text = status, text
         self.ok = status < 400
-        self.headers = {"content-type": "text/html; charset=utf-8"}  # OLX отдаёт utf-8; без этого Fetcher гадал бы кодировку
+        self.headers = {"content-type": "text/html; charset=utf-8"}  # OLX serves utf-8; without this Fetcher would guess the encoding
 
     def raise_for_status(self) -> None:
         if not self.ok:
@@ -93,7 +93,7 @@ class CurlResponse:
 
 
 class Fetcher:
-    """Вежливый GET: нормальный UA, пауза между запросами, robots.txt каждого хоста."""
+    """Polite GET: a normal UA, pauses between requests, robots.txt of every host."""
 
     def get(self, url: str):
         if urlparse(url).netloc not in CURL_HOSTS:
@@ -112,7 +112,7 @@ class Fetcher:
         self.session = requests.Session()
         self.session.headers["User-Agent"] = user_agent
         self.delay = delay
-        self.host_delay = host_delay or {}  # сайты с жёстким лимитом (alo.bg): минимальная пауза, с
+        self.host_delay = host_delay or {}  # sites with strict rate limits (alo.bg): minimum pause, s
         self.last = 0.0
         self.robots: dict[str, list] = {}
 
@@ -121,17 +121,17 @@ class Fetcher:
         if p.netloc not in self.robots:
             try:
                 r = self.get(f"{p.scheme}://{p.netloc}/robots.txt")
-                # 4xx = ограничений нет; 5xx/сеть = недоступен, ничего не берём (RFC 9309)
+                # 4xx = no restrictions; 5xx/network = unavailable, take nothing (RFC 9309)
                 self.robots[p.netloc] = robots_rules(r.text) if r.ok else [] if r.status_code < 500 else [(False, "/")]
             except requests.RequestException:
                 self.robots[p.netloc] = [(False, "/")]
         path = (p.path or "/") + (f"?{p.query}" if p.query else "")
-        # правило может быть записано и кириллицей («/обяви/»), и %-кодом: разрешено, только если обе формы разрешены
+        # a rule may be written in Cyrillic («/обяви/») or %-encoded: allowed only if both forms are allowed
         return robots_allows(self.robots[p.netloc], unquote(path)) and robots_allows(self.robots[p.netloc], path)
 
     def __call__(self, url: str) -> str | None:
-        """None = страницы нет (404) или её запрещает robots.txt.
-        429: одна пауза по Retry-After (или 90 с) и повтор, дальше ошибка."""
+        """None = no page (404) or robots.txt disallows it.
+        429: one pause per Retry-After (or 90 s) and a retry, then an error."""
         if not self.allowed(url):
             return None
         pause = max(random.uniform(*self.delay), self.host_delay.get(urlparse(url).netloc, 0))
@@ -149,6 +149,6 @@ class Fetcher:
                 return None
             r.raise_for_status()
             if not re.search(r"charset=[\w-]", r.headers.get("content-type", ""), re.I):
-                # нет кодировки или пустой «charset=» (bulgarianproperties.bg): requests взял бы latin-1, а там windows-1251
+                # no charset or an empty «charset=» (bulgarianproperties.bg): requests would assume latin-1, but the page is windows-1251
                 r.encoding = r.apparent_encoding
             return r.text

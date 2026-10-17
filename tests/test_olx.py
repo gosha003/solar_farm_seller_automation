@@ -51,4 +51,4 @@ def test_olx_host_goes_through_curl(monkeypatch):
         stderr=b"", returncode=0))
     f = Fetcher("UA/1", (0, 0))
     assert f("https://www.olx.bg/ads/q-x/") == "<html>ok</html>"
-    assert all(c[0] == "curl" and "UA/1" in c for c in calls) and len(calls) == 2  # robots.txt + страница
+    assert all(c[0] == "curl" and "UA/1" in c for c in calls) and len(calls) == 2  # robots.txt + page

@@ -1,9 +1,9 @@
-"""Одноразовая OAuth-авторизация Google (Desktop flow).
+"""One-time Google OAuth authorization (Desktop flow).
 
-    python -m solar_outreach.google_auth [путь к client_secret.json]
+    python -m solar_outreach.google_auth [path to client_secret.json]
 
-Открывает браузер, проверяет, что вошли именно в owner.email из config.yaml,
-и пишет GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN в .env (он в .gitignore).
+Opens a browser, checks that the signed-in account is exactly owner.email from the config,
+and writes GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN to .env (which is gitignored).
 """
 import sys
 from pathlib import Path
@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 
 from solar_outreach.config import ROOT, load_config, update_env
 
-SCOPES = [  # раздел 8: ничего шире
+SCOPES = [  # nothing broader than needed
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -21,7 +21,7 @@ SCOPES = [  # раздел 8: ничего шире
 
 
 def credentials():
-    """Учётные данные из .env / секретов (refresh token): общий вход для Gmail, Sheets и Drive."""
+    """Credentials from .env / secrets (refresh token): shared sign-in for Gmail, Sheets and Drive."""
     import os
     from google.oauth2.credentials import Credentials
     return Credentials(None, refresh_token=os.environ["GOOGLE_REFRESH_TOKEN"], token_uri="https://oauth2.googleapis.com/token",

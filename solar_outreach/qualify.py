@@ -1,7 +1,7 @@
-"""Отбор и скоринг по criteria из config.yaml (раздел 2 ТЗ).
+"""Selection and scoring by `criteria` from config.yaml.
 
-verdict: «кандидат» (мощность известна и в min_kwp..max_kwp) / «мелкая», «крупная», «дорого», «мощность неизвестна» (не писать).
-Владелец 2026-10-10: карточки только по станциям 1-2 МВт с подтверждённой мощностью, без мягких границ и без «выясним в переписке».
+verdict: «кандидат» (power known and within min_kwp..max_kwp) / «мелкая», «крупная», «дорого», «мощность неизвестна» (don't write).
+Owner decision 2026-10-10: cards only for 1-2 MW stations with confirmed power, no soft bounds, no "we'll find out later".
 """
 from solar_outreach import parse
 

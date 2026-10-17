@@ -1,11 +1,7 @@
-"""Ответ продавца с alo.bg: уведомление приходит без текста, текст читается в кабинете alo (в Chrome владельца).
+"""Seller replies on alo.bg: the notification email has no text, so the reply is read in the alo.bg account.
 
-    python -m solar_outreach.alo_reply pending                  # станции со статусом «ответ на alo»
-    python -m solar_outreach.alo_reply note S020 @файл.txt --title "Запитване по <заголовок диалога>"
-        # разобрать текст как /note, снять пометку; текст можно и строкой вместо @файл (UTF-8)
-        # --title обязателен: заголовок диалога в кабинете должен совпасть с заголовком станции, иначе отказ
-
-Читает кабинет не бот на VM (вход в alo только через Google/reCAPTCHA), а Claude в Chrome по расписанию на ПК владельца.
+The account is read not by the bot on the VM (alo.bg login is Google/reCAPTCHA only) but by a scheduled
+Claude-in-Chrome routine on the owner's PC, which feeds the text back through this CLI (usage: USAGE).
 """
 import os
 import re
@@ -14,6 +10,16 @@ from datetime import date
 
 from solar_outreach import approval, notify, owner, sheets
 from solar_outreach.config import load_config, single_run
+
+USAGE = """Ответ продавца с alo.bg: уведомление приходит без текста, текст читается в кабинете alo (в Chrome владельца).
+
+    python -m solar_outreach.alo_reply pending                  # станции со статусом «ответ на alo»
+    python -m solar_outreach.alo_reply note S020 @файл.txt --title "Запитване по <заголовок диалога>"
+        # разобрать текст как /note, снять пометку; текст можно и строкой вместо @файл (UTF-8)
+        # --title обязателен: заголовок диалога в кабинете должен совпасть с заголовком станции, иначе отказ
+
+Читает кабинет не бот на VM (вход в alo только через Google/reCAPTCHA), а Claude в Chrome по расписанию на ПК владельца.
+"""  # printed to the owner, so it stays in Russian
 
 PENDING = "ответ на alo"
 
@@ -24,7 +30,7 @@ def norm(title: str) -> str:
 
 
 def same_title(dialog_title: str, station_title: str) -> bool:
-    """Защита от чужого диалога: ответ записывается станции, только если заголовки объявления совпали."""
+    """Guard against someone else's dialog: the reply is saved to the station only if the listing titles match."""
     return bool(norm(dialog_title)) and norm(dialog_title) == norm(station_title)
 
 
@@ -44,7 +50,7 @@ def note(api, sid, station_id: str, text: str, title: str) -> str:
     before = {k: dict(v) for k, v in stations.items()}
     c = owner.Ctx(api, sid, cfg, stations, by_id, sheets.read(api, sid, "Диалоги"), settings, state)
     msg = owner.note(c, station_id, text, date.today())
-    if st and st["статус переписки"] == PENDING:  # автоответ и т.п.: пометка снимается, ждём дальше
+    if st and st["статус переписки"] == PENDING:  # auto-reply etc.: clear the mark and keep waiting
         st["статус переписки"], st["следующий шаг"] = "ждём ответа", "ждать ответа"
     queue = []
     auto = (settings.get("approval_mode") or cfg["approval_mode"]) == "auto"
@@ -74,4 +80,4 @@ if __name__ == "__main__":
         with single_run("sheet", stale_sec=3600, wait=300):
             print(note(api, sid, args[1], text, args[4]))
     else:
-        sys.exit(__doc__)
+        sys.exit(USAGE)

@@ -1,8 +1,8 @@
-"""Ключи Anthropic и Telegram в .env: ввод скрыт, в историю shell не попадает, каждый ключ проверяется.
+"""Anthropic and Telegram keys into .env: hidden input, never in shell history, every key is verified.
 
     python -m solar_outreach.set_secrets
 
-Пустой ввод = пропустить шаг. Повторный запуск = ротация ключа.
+Empty input = skip the step. Running it again = key rotation.
 """
 import getpass
 import json
@@ -26,18 +26,18 @@ def set_anthropic() -> None:
     key = getpass.getpass("Anthropic API key (ввод скрыт, Enter = пропустить): ").strip()
     if not key:
         return
-    # Console выдаёт sk-ant-api03-... (старые) и sk-ant-usr-... (новые). OAuth (sk-ant-oat) и admin-ключи
-    # для Messages API не годятся; мусор от вставки (\x16 = Ctrl+V в старой консоли) ловим до сети.
+    # The Console issues sk-ant-api03-... (older) and sk-ant-usr-... (newer) keys. OAuth (sk-ant-oat) and admin keys
+    # don't work with the Messages API; paste garbage (\x16 = Ctrl+V in the old console) is caught before any network call.
     if (not key.startswith("sk-ant-") or key.startswith(("sk-ant-oat", "sk-ant-admin"))
             or not (key.isascii() and key.isprintable())):
         sys.exit(f"Это не API-ключ: начало {key[:10]!r}, длина {len(key)}. "
                  "Нужен ключ из Console → API Keys → Create Key.")
     try:
-        anthropic.Anthropic(api_key=key).models.list(limit=1)  # бесплатный запрос, только проверка ключа
+        anthropic.Anthropic(api_key=key).models.list(limit=1)  # free request, only checks the key
     except anthropic.AuthenticationError:
         sys.exit("Anthropic отверг ключ (401): отозван или скопирован не полностью.")
     except anthropic.BadRequestError as e:
-        # sk-ant-usr- без workspace требует заголовок anthropic-workspace-id; проще пересоздать ключ с workspace.
+        # sk-ant-usr- without a workspace needs the anthropic-workspace-id header; simpler to recreate the key with a workspace.
         sys.exit(f"Anthropic ответил 400: {e.message}\n"
                  "Обычно это ключ без workspace: пересоздай его в Console, выбрав Workspace = Default.")
     except anthropic.APIStatusError as e:
@@ -62,7 +62,7 @@ def set_telegram() -> None:
         sys.exit("Бот не получил сообщений. Отправь /start и повтори.")
     chat = chats[-1]
     who = chat.get("username") or chat.get("first_name", "")
-    # Имя бота можно найти поиском, написать ему мог кто угодно: подтверждаем, что чат твой.
+    # Anyone can find the bot by name and message it: confirm the chat is yours.
     if input(f"Чат: {who} (id {chat['id']}). Это ты? [y/N] ").strip().lower() != "y":
         sys.exit("Отменено.")
     telegram(token, "sendMessage", chat_id=chat["id"], text="Solar BG: бот подключён.")

@@ -31,7 +31,7 @@ def test_bounce_detection():
 
 
 class FakeSvc:
-    """Минимальный Gmail API: записывает вызовы, тред t1 наш (есть метка L1), t2 чужой."""
+    """Minimal Gmail API: records calls; thread t1 is ours (has label L1), t2 isn't."""
     def __init__(self):
         self.calls = []
         threads = {"t1": {"messages": [msg(labels=("SENT", "L1"), frm="owner@example.com", id="m0"), msg()]},
@@ -40,7 +40,7 @@ class FakeSvc:
         self.labels = lambda: SimpleNamespace(list=lambda **k: ex({"labels": [{"name": "SolarBG", "id": "L1"},
                                                                                {"name": "SolarBG/обработано", "id": "L2"}]}))
         self.threads = lambda: SimpleNamespace(
-            list=lambda **k: ex({"threads": [{"id": "t1"}, {"id": "t2"}]}),  # t2 «подсунули»: должен отсеяться
+            list=lambda **k: ex({"threads": [{"id": "t1"}, {"id": "t2"}]}),  # t2 was slipped in: must be filtered out
             get=lambda userId, id, format: ex(threads[id]))
 
         def send(userId, body):
@@ -55,7 +55,7 @@ class FakeSvc:
 
 def test_incoming_reads_only_our_threads_and_skips_own_messages():
     got = gmail.incoming(FakeSvc())
-    assert [m["id"] for m in got] == ["m1"]          # не m0 (наше), не x1 (чужой тред)
+    assert [m["id"] for m in got] == ["m1"]          # not m0 (ours), not x1 (someone else's thread)
 
 
 def test_adopt_labels_mail_from_known_sellers_by_address_or_corporate_domain():
@@ -73,12 +73,12 @@ def test_adopt_labels_mail_from_known_sellers_by_address_or_corporate_domain():
 
 
 def test_dry_run_blocks_sellers_but_allows_owner(monkeypatch):
-    monkeypatch.setenv("DRY_RUN", "true")  # явно: .env владельца может содержать false, load_env его не перетрёт
+    monkeypatch.setenv("DRY_RUN", "true")  # explicit: the owner's .env may contain false and load_env won't override it
     svc = FakeSvc()
     assert gmail.send(svc, "seller@abv.bg", "s", "b") == {"dry_run": True} and svc.calls == []
     assert gmail.send(svc, "Ivan <owner@example.com>", "[SOLAR] t", "b")["id"] == "s1"
     kinds = [c[0] for c in svc.calls]
-    assert kinds == ["send", "modify"] and svc.calls[1][2] == {"addLabelIds": ["L1"]}   # метка SolarBG
+    assert kinds == ["send", "modify"] and svc.calls[1][2] == {"addLabelIds": ["L1"]}   # SolarBG label
     monkeypatch.setenv("DRY_RUN", "false")
     assert gmail.send(svc, "seller@abv.bg", "s", "b")["id"] == "s1"
 

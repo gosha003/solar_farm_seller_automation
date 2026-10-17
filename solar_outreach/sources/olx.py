@@ -1,9 +1,9 @@
-"""olx.bg: поиск /ads/q-<запрос>/?page=N, в карточке заголовок, цена, «Город - дата»; страница объявления: HTML.
-Категории под ФЕЦ нет, выдача шумная (оборудование, мелкие крыши по 30 кВт), поэтому карточки с мощностью в заголовке
-вне критериев отбрасываем сразу. Телефон за кнопкой «Покажи» (AJAX /ad/contact/ закрыт в robots.txt) не берём:
-только то, что продавец написал в тексте, иначе канал «сайт (ручная)» и владелец пишет через чат OLX.
-С VM (адрес облака) сайт отдаёт 403 и это не обходится, поэтому источник идёт с ПК владельца: search --only olx.bg.
-robots.txt проверено 2026-10-15: поиск и /d/ad/ разрешены (закрыты /api/, */ajax/, /ad/contact/, */i2/*)."""
+"""olx.bg: search /ads/q-<query>/?page=N; a card has title, price, «Город - дата»; the listing page is HTML.
+There is no PV category and results are noisy (equipment, small 30 kW rooftops), so cards whose title power
+is out of range are dropped at once. The phone behind «Покажи» (AJAX /ad/contact/ is closed in robots.txt) is not taken:
+only what the seller wrote in the text, otherwise the channel is «сайт (ручная)» and the owner writes via OLX chat.
+The site returns 403 to the VM (a cloud IP) and that isn't worked around, so this source runs from the owner's PC:
+search --only olx.bg. robots.txt checked 2026-10-15: search and /d/ad/ allowed (closed: /api/, */ajax/, /ad/contact/, */i2/*)."""
 import re
 from urllib.parse import quote
 
@@ -15,11 +15,11 @@ from solar_outreach.sources import Listing
 
 QUERIES = ["фотоволтаична централа", "фотоволтаичен парк", "соларен парк", "ФЕЦ продава", "фотоволтаична MW"]
 PAGES = 3
-LOCATIONS: dict[str, str] = {}  # {ссылка: «Город»} из карточки: на странице объявления место рисуется картой
+LOCATIONS: dict[str, str] = {}  # {link: «Город»} from the card: the listing page draws the place as a map
 
 
 def card_links(html: str, crit: dict | None = None) -> tuple[int, dict[str, str]]:
-    """(число карточек, {ссылка: заголовок}); с crit отбрасывает карточки, где мощность из заголовка вне диапазона."""
+    """(number of cards, {link: title}); with crit, drops cards whose title power is out of range."""
     soup = BeautifulSoup(html, "html.parser")
     cards, out = soup.select('div[data-cy="l-card"]'), {}
     for c in cards:

@@ -1,12 +1,12 @@
-"""Telegram-бот владельца (раздел 10). Без вебхуков: getUpdates при каждом запуске цикла,
-а между запусками демон на VM ждёт апдейты long polling'ом (wait), поэтому ответ за секунды.
+"""The owner's Telegram bot. No webhooks: getUpdates on every loop run, and between runs
+the daemon on the VM waits for updates with long polling (wait), so it answers within seconds.
 """
 import os
 
 import requests
 
 API = "https://api.telegram.org/bot{token}/{method}"
-LIMIT = 4000  # у Telegram 4096 символов на сообщение
+LIMIT = 4000  # Telegram allows 4096 characters per message
 
 
 class TelegramError(Exception):
@@ -14,10 +14,10 @@ class TelegramError(Exception):
 
 
 def call(method: str, **params) -> dict | list:
-    """Токен входит в URL, поэтому исключения requests (с URL в тексте) наружу не выпускаем: только метод и описание."""
+    """The token is part of the URL, so requests exceptions (URL in the text) never escape: only method and description."""
     try:
         r = requests.post(API.format(token=os.environ["TELEGRAM_BOT_TOKEN"], method=method), json=params,
-                          timeout=30 + params.get("timeout", 0))  # long polling держит соединение timeout секунд
+                          timeout=30 + params.get("timeout", 0))  # long polling holds the connection for `timeout` seconds
         data = r.json()
     except (requests.RequestException, ValueError) as e:
         raise TelegramError(f"{method}: {type(e).__name__}") from None
@@ -27,7 +27,7 @@ def call(method: str, **params) -> dict | list:
 
 
 def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> int:
-    """Простой текст без parse_mode: продавцы пишут что угодно, Markdown сломался бы. Возвращает message_id."""
+    """Plain text without parse_mode: sellers write anything and Markdown would break. Returns message_id."""
     params = {"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text[:LIMIT], "disable_web_page_preview": True}
     if buttons:
         params["reply_markup"] = {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row] for row in buttons]}
@@ -35,7 +35,7 @@ def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> int:
 
 
 def urgent(text: str) -> None:
-    """Срочное: Telegram сразу; если Telegram недоступен, письмо владельцу с префиксом [SOLAR] (раздел 10)."""
+    """Urgent: Telegram right away; if Telegram is down, an email to the owner prefixed [SOLAR]."""
     try:
         send(text)
     except TelegramError:
@@ -50,7 +50,7 @@ def email_owner(subject: str, text: str) -> None:
 
 
 def updates(offset: int) -> list[dict]:
-    """Только апдейты из чата владельца; остальное молча отбрасываем (бот находим поиском, писать может кто угодно)."""
+    """Only updates from the owner's chat; everything else is dropped silently (anyone can find the bot and write to it)."""
     owner = str(os.environ["TELEGRAM_CHAT_ID"])
     out = []
     for u in call("getUpdates", offset=offset, timeout=0, allowed_updates=["message", "callback_query"]):
@@ -62,14 +62,14 @@ def updates(offset: int) -> list[dict]:
 
 
 def wait(offset: int, seconds: int) -> None:
-    """Long polling: вернуться, как только у бота появится апдейт (или через seconds). Апдейты не подтверждаем:
-    их заберёт и обработает следующий запуск цикла с тем же offset."""
+    """Long polling: return as soon as the bot has an update (or after `seconds`). Updates are not acknowledged:
+    the next loop run picks them up with the same offset."""
     call("getUpdates", offset=offset, timeout=seconds, limit=1, allowed_updates=["message", "callback_query"])
 
 
 def answer_callback(callback_id: str, text: str = "") -> None:
-    """Telegram принимает ответ на нажатие только несколько секунд; при опросе раз в N минут он уже «too old».
-    Это косметика (убрать «часики» на кнопке), поэтому ошибку игнорируем."""
+    """Telegram accepts an answer to a button tap for only a few seconds; with polling every N minutes it is already "too old".
+    It is cosmetic (removes the spinner on the button), so the error is ignored."""
     try:
         call("answerCallbackQuery", callback_query_id=callback_id, text=text)
     except TelegramError:
@@ -83,7 +83,7 @@ COMMANDS = {"stats": "статистика", "status": "карточка ста�
 
 
 def set_commands() -> None:
-    """Меню «/» в Telegram (setMyCommands): одноразово, вызывается из set_secrets."""
+    """The "/" menu in Telegram (setMyCommands): one-off, called from set_secrets."""
     call("setMyCommands", commands=[{"command": c, "description": d} for c, d in COMMANDS.items()])
 
 

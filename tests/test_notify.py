@@ -31,4 +31,4 @@ def test_errors_never_contain_token(monkeypatch):
 def test_stale_callback_answer_is_ignored(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     monkeypatch.setattr(notify.requests, "post", lambda *a, **k: Resp())
-    notify.answer_callback("cb1", "ok")  # не падает
+    notify.answer_callback("cb1", "ok")  # doesn't crash

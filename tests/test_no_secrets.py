@@ -1,4 +1,4 @@
-"""Раздел 14: перед публикацией в репозитории не должно быть ключей. Гоняется и локально, и в CI."""
+"""No keys may be in the repository before publishing. Runs locally and in CI."""
 import re
 import subprocess
 from pathlib import Path
@@ -15,7 +15,7 @@ SECRET = re.compile(
 
 
 def publishable_files() -> list[str]:
-    """Tracked + новые неигнорируемые файлы: ровно то, что уйдёт после `git add -A`."""
+    """Tracked + new non-ignored files: exactly what `git add -A` would publish."""
     out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
                          cwd=ROOT, capture_output=True, text=True, check=True).stdout
     return [f for f in out.split("\0") if f]

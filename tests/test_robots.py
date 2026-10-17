@@ -22,7 +22,7 @@ Disallow: /*.pdf$
 
 def test_alo_rules():
     r = robots_rules(ALO)
-    assert (False, "/private") not in r                    # чужая группа
+    assert (False, "/private") not in r                    # another group
     assert robots_allows(r, "/searchq/?q=фец")
     assert not robots_allows(r, "/searchq/?q=фец&page=2")
     assert not robots_allows(r, "/ad-123?ajax=1")

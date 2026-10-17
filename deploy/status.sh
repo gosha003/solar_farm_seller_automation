@@ -1,5 +1,5 @@
 #!/bin/sh
-# На VM: состояние бота (deploy/deploy.sh кладёт его в ~/solar/deploy). Запуск с компьютера:
+# On the VM: bot status (deploy/deploy.sh puts it in ~/solar/deploy). Run from the PC:
 #   gcloud compute ssh solar-bot --zone us-east1-b --command "sh solar/deploy/status.sh"
 cd "$HOME/solar"
 echo "bot: $(systemctl is-active solar-bot)"

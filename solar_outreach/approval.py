@@ -1,10 +1,10 @@
-"""Telegram (кнопки и команды) -> черновики (первые письма, дожимы) -> отправка в рамках лимитов -> дайджест.
+"""Telegram (buttons and commands) -> drafts (first letters, follow-ups) -> sending within limits -> digest.
 
-    python -m solar_outreach.approval            # обработать нажатия/правки владельца, создать черновики новых станций
-    python -m solar_outreach.approval --test 9   # плюс 9 тестовых черновиков по мелким станциям (не отправляются)
+    python -m solar_outreach.approval            # process the owner's taps/edits, create drafts for new stations
+    python -m solar_outreach.approval --test 9   # plus 9 test drafts for small stations (never sent)
 
-Состояние между запусками в «_state»: tg_offset, pending_edit, дайджест, ошибки.
-«Настройки»: approval_mode (manual|auto, меняет /auto), пауза (/pause), счётчик одобренных.
+State between runs lives in «_state»: tg_offset, pending_edit, digest, errors.
+«Настройки»: approval_mode (manual|auto, changed by /auto), pause (/pause), approved counter.
 """
 import os
 import random
@@ -16,7 +16,7 @@ from solar_outreach import drafts, followup, gmail_client as gmail, inbox, llm, 
 from solar_outreach.config import dry_run, load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
-PAUSED = ("эскалация", "отказ", "пропущено владельцем", "ответ на alo", inbox.OWNER_LED)  # раздел 4: пока владелец не решил, письма не уходят
+PAUSED = ("эскалация", "отказ", "пропущено владельцем", "ответ на alo", inbox.OWNER_LED)  # hard rules: nothing goes out until the owner decides
 
 
 def contact(st: dict) -> str:
@@ -24,7 +24,7 @@ def contact(st: dict) -> str:
 
 
 def make_draft(st: dict, did: str, test: bool) -> dict:
-    lang = "bg" if drafts.is_general(st) else drafts.language(st["заголовок"])  # у агентства язык по названию не определить
+    lang = "bg" if drafts.is_general(st) else drafts.language(st["заголовок"])  # an agency's language can't be told from its name
     subject, body = drafts.first(st, lang)
     kind = "первое (брокер)" if drafts.is_broker(st) else "первое"
     return {"id": did, "id станции": st["id"], "дата": date.today().isoformat(), "язык": lang,
@@ -56,8 +56,8 @@ def queue_row(d: dict, st: dict) -> dict:
 
 
 def approve(d: dict, st: dict, queue: list) -> None:
-    """Одобрение (кнопкой или в режиме auto): email уйдёт при отправке, остальное в «Ручную очередь».
-    DRY_RUN: email тоже в очередь, отправляет владелец сам; пометка «вручную» не даст системе отправить его позже."""
+    """Approval (button or auto mode): email goes out on the next send, everything else goes to «Ручная очередь».
+    DRY_RUN: email goes to the queue too and the owner sends it by hand; the «вручную» mark stops the system sending it later."""
     d["статус"] = "одобрено"
     if "ТЕСТ" not in d["тип"]:
         if d["канал"] != "email" or dry_run():
@@ -68,14 +68,14 @@ def approve(d: dict, st: dict, queue: list) -> None:
 
 
 def site_hint(d: dict, st: dict) -> None:
-    """Канал «сайт» (alo.bg): ссылка и чистый текст двумя сообщениями, текст копируется одним тапом."""
+    """«сайт» channel (alo.bg): link and plain text as two messages, so the text copies with one tap."""
     if d["канал"].startswith("сайт") and "ТЕСТ" not in d["тип"]:
         notify.send(f"{d['id станции']}: открой объявление, вставь текст из следующего сообщения\n{st['ссылка']}")
         notify.send(d["текст"])
 
 
 def present(d: dict, st: dict, auto: bool, queue: list) -> None:
-    """Новый черновик: в режиме auto без нарушений правил одобряется сам, иначе карточка с кнопками владельцу."""
+    """New draft: in auto mode it approves itself if it breaks no rules, otherwise the owner gets a card with buttons."""
     if auto and not d["нарушения правил"] and "ТЕСТ" not in d["тип"]:
         approve(d, st, queue)
         if d["канал"] != "email":
@@ -86,7 +86,7 @@ def present(d: dict, st: dict, auto: bool, queue: list) -> None:
 
 
 def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tuple[dict, list, int]:
-    """Возвращает (изменённые черновики, строки ручной очереди, прирост одобренных)."""
+    """Returns (changed drafts, manual-queue rows, number of new approvals)."""
     offset = int(state.get("tg_offset") or 0)
     pending = state.get("pending_edit") or ""
     changed, queue, approved = {}, [], 0
@@ -144,7 +144,7 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
 
 
 def to_send(by_id: dict) -> list[dict]:
-    """Одобренные email-черновики, ещё не отправленные. Помеченные DRY_RUN ждут, пока DRY_RUN не выключат."""
+    """Approved email drafts not sent yet. Those marked DRY_RUN wait until DRY_RUN is turned off."""
     pending = ("",) if dry_run() else ("", "DRY_RUN")
     return [d for d in by_id.values() if d["статус"] == "одобрено" and d["канал"] == "email"
             and "ТЕСТ" not in d["тип"] and d.get("отправлено", "") in pending]
@@ -152,9 +152,9 @@ def to_send(by_id: dict) -> list[dict]:
 
 def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: dict,
                   left: dict | None = None, quiet: bool = False) -> list[dict]:
-    """Отправка через Gmail с паузой 60-180 с. Возвращает строки «Диалоги» (out).
-    left = {"run": первых писем и дожимов за этот запуск, "first": первых писем до суточного лимита};
-    не влезшее остаётся «одобрено» и уходит в следующих запусках. Ответы в диалогах без лимита (раздел 10)."""
+    """Send through Gmail with a 60-180 s pause. Returns «Диалоги» rows (out).
+    left = {"run": first letters and follow-ups for this run, "first": first letters left under the daily cap};
+    whatever doesn't fit stays «одобрено» and goes out in later runs. Replies inside dialogs are unlimited."""
     left = left if left is not None else {"run": len(ds), "first": len(ds)}
     if not ds:
         return []
@@ -210,7 +210,7 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
 
 
 def bounce_stop(c: owner.Ctx, by_id: dict, today: str) -> None:
-    """Раздел 8: доля bounce за сутки выше порога -> автоотправка выключается (назад в manual), владельцу срочно."""
+    """Bounce share over the last day above the threshold -> auto-sending turns off (back to manual), urgent alert to the owner."""
     bounces = int(c.state.get(f"bounce {today}") or 0)
     sent = sum(d.get("отправлено") == today for d in by_id.values())
     if c.mode() == "auto" and bounces / max(sent, 1) > c.cfg["limits"]["bounce_rate_stop"]:
@@ -220,7 +220,7 @@ def bounce_stop(c: owner.Ctx, by_id: dict, today: str) -> None:
 
 
 def main(test_n: int = 0) -> int:
-    """Один проход. Возвращает offset Telegram для long polling демона."""
+    """One pass. Returns the Telegram offset for the daemon's long polling."""
     cfg = load_config()
     api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
     sheets.ensure_tabs(api, sid)
@@ -240,10 +240,10 @@ def main(test_n: int = 0) -> int:
     auto, paused = ctx.mode() == "auto", ctx.paused()
 
     new = []
-    for d in ctx.new_drafts:  # /note: черновик ответа после ответа продавца в WhatsApp/Viber
+    for d in ctx.new_drafts:  # /note: draft a reply after the seller answered on WhatsApp/Viber
         present(d, stations[d["id станции"]], auto, queue)
         new.append(d)
-    if not paused:  # на паузе новые письма не готовим, чтобы не копить кнопки
+    if not paused:  # while paused, don't prepare new letters so buttons don't pile up
         drafted = {d["id станции"] for d in by_id.values()}
         real = [s for s in stations.values()
                 if s["статус переписки"] == "новая" and s["приоритет"] != "-" and s["id"] not in drafted]
@@ -266,10 +266,10 @@ def main(test_n: int = 0) -> int:
     first_today = sum(d.get("отправлено") == t and d["тип"].startswith("первое") for d in by_id.values())
     left = {"run": cfg["limits"]["outreach_per_run"], "first": cfg["limits"]["new_per_day"] - first_today}
     out_dialogs = send_approved(api, sid, sending, by_id, stations, cfg, left, quiet=auto)
-    changed.update({d["id"]: d for d in sending if "_row" in d})  # новые строки уйдут через append
+    changed.update({d["id"]: d for d in sending if "_row" in d})  # new rows go out via append
 
     if owner.digest_due(ctx):
-        notify.urgent(owner.digest(ctx, today))  # Telegram, при сбое письмом [SOLAR]
+        notify.urgent(owner.digest(ctx, today))  # Telegram, falling back to a [SOLAR] email
         state["дайджест"] = owner.local_now(cfg).date().isoformat()
 
     sheets.append(api, sid, "Диалоги", ctx.new_dialogs + out_dialogs)
