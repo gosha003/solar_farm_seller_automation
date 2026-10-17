@@ -81,6 +81,18 @@ def single_run(name: str, stale_sec: int = 1800, wait: float = 0):
         lock.unlink(missing_ok=True)
 
 
+LOCAL = PKG / "config.local.yaml"  # gitignored: real owner contacts and price targets; tests set it to None
+
+
+def merge(base: dict, over: dict) -> dict:
+    for key, value in over.items():
+        base[key] = merge(base[key], value) if isinstance(value, dict) and isinstance(base.get(key), dict) else value
+    return base
+
+
 def load_config(path: Path = PKG / "config.yaml") -> dict:
     load_env()
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if LOCAL and LOCAL.exists():
+        merge(cfg, yaml.safe_load(LOCAL.read_text(encoding="utf-8")) or {})
+    return cfg

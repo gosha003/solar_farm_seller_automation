@@ -4,8 +4,6 @@
 """
 import re
 
-ALLOWED_PHONE = "359880000000"
-
 CHECKS = [
     ("слово про бота/систему/ИИ", re.compile(
         r"\b(систем\w*|бот\w*|асистент\w*|ассистент\w*|ИИ|изкуствен\w* интелект|искусственн\w* интеллект\w*"
@@ -27,11 +25,16 @@ CHECKS = [
 PHONE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
 
 
+def digits(phone: str) -> str:
+    return re.sub(r"\D", "", phone)
+
+
 def violations(text: str, signature: str) -> list[str]:
     out = [name for name, rx in CHECKS if rx.search(text)]
-    phones = [d for d in (re.sub(r"\D", "", p) for p in PHONE.findall(text)) if len(d) >= 9]  # даты «08.10.2026» не телефоны
-    if any(d != ALLOWED_PHONE for d in phones):
-        out.append("чужой номер телефона")  # продавцам только +359 88 000 0000 (номер WhatsApp владельца)
+    allowed = {digits(p) for p in PHONE.findall(signature)}
+    phones = [d for d in map(digits, PHONE.findall(text)) if len(d) >= 9]  # dates like "08.10.2026" are not phones
+    if any(d not in allowed for d in phones):
+        out.append("чужой номер телефона")  # sellers only ever get the owner's number from the signature
     if signature.strip() not in text:
         out.append("нет подписи")
     return out
