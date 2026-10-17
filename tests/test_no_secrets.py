@@ -24,7 +24,7 @@ def publishable_files() -> list[str]:
 def test_no_secret_files_or_keys_would_be_published():
     files = publishable_files()
     assert files, "git ls-files пуст: тест запущен не из репозитория?"
-    bad_names = [f for f in files if Path(f).name == ".env" or Path(f).name.startswith("client_secret")]
+    bad_names = [f for f in files if Path(f).name in (".env", "config.local.yaml") or Path(f).name.startswith("client_secret")]
     assert not bad_names, bad_names
     leaks = [f for f in files if (ROOT / f).is_file()
              and SECRET.search((ROOT / f).read_text(encoding="utf-8", errors="ignore"))]

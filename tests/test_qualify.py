@@ -20,8 +20,9 @@ def test_size_and_price_bands():
     assert q(1000, None)["verdict"] == q(2000, None)["verdict"] == "кандидат"
     assert q(5000, None)["verdict"] == "крупная"
     assert q(1000, 1_200_000)["verdict"] == "дорого"           # 1200 €/кВт > skip_above
-    assert q(1000, 1_101_000)["verdict"] == "дорого"
-    assert q(1000, 1_100_000)["verdict"] == "кандидат"         # граница включительно
+    cap = C["price_per_kwp_eur"]["skip_above"]
+    assert q(1000, (cap + 1) * 1000)["verdict"] == "дорого"
+    assert q(1000, cap * 1000)["verdict"] == "кандидат"         # граница включительно
     cheap = q(1000, 500_000)
     assert cheap["verdict"] == "кандидат" and "подозрительно дешево" in cheap["notes"]
 

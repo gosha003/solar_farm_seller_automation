@@ -1,54 +1,53 @@
-# Бизнес-параметры системы. Код ничего из этого не хардкодит.
-# Реальная отправка управляется ТОЛЬКО env DRY_RUN (по умолчанию true), не этим файлом.
+# Business parameters. The code hardcodes none of these.
+# Values here are public examples: a deployment overrides them in config.local.yaml (gitignored),
+# which load_config() merges on top of this file.
+# Real sending is controlled ONLY by the DRY_RUN env var (default true), never by this file.
 
-approval_mode: auto            # по умолчанию (владелец 2026-10-13: без одобрения); действующий режим во вкладке «Настройки», меняется /auto on|off
+approval_mode: manual          # default; the live mode is in the «Настройки» sheet tab and is switched with /auto on|off
 
-owner:                         # раздел 1: в письмах можно использовать только эти факты
+owner:                         # letters may state only these facts about the buyer
   name: {bg: Иван Петров, en: Ivan Petrov, ru: Иван Петров}
   company: {bg: Пример Солар ЕООД, en: Example Solar EOOD, ru: Пример Солар ЕООД}
   email: owner@example.com
-  phone: "+359 88 000 0000"    # единственный номер для продавцов
+  phone: "+359 88 000 0000"    # the only number sellers ever get
   timezone: America/Toronto
-  facts:                       # что Claude может говорить продавцам о покупателе (и ничего сверх)
-    - Пример Солар ЕООД владеет и управляет фотоэлектрическими станциями по всей Болгарии. Мощности, места и число станций не называть.
-    - Цель - купить готовую действующую ФЕЦ 1-2 МВт.
-    - "Связь: email и WhatsApp/Viber по указанному телефону. Где находится покупатель, не сообщать."
-  internal_notes:              # раздел 1 ТЗ, в письмах НЕ используется (владелец: формулировка «по всей Болгарии»)
-    - Internal note.
-    - Internal note.
+  facts:                       # what the LLM may tell sellers about the buyer, and nothing beyond it
+    - The company owns and operates photovoltaic plants in Bulgaria. Never state capacities, locations or the number of plants.
+    - The goal is to buy a ready, operating 1-2 MW PV plant.
+    - "Contact: email and WhatsApp/Viber on the phone above. Never say where the buyer is located."
 
-criteria:                      # раздел 2
+criteria:                      # which listings qualify
   min_kwp: 1000
   max_kwp: 2000
   price_per_kwp_eur:
     preferred: [800, 900]
     acceptable: [700, 1000]
-    suspicious_below: 600      # писать, пометить
-    skip_above: 1100           # не писать, если цена известна
+    suspicious_below: 600      # still write, but flag
+    skip_above: 1100           # do not write when the price is known and above this
   min_year_preferred: 2018
-  regime: any                  # преференциальный тариф или свободный рынок (IBEX)
+  regime: any                  # feed-in tariff or free market (IBEX)
   region: all_bulgaria
   status_required: operating
 
-eur_bgn: 1.95583               # фиксированный курс
+eur_bgn: 1.95583               # fixed EUR/BGN peg
 
 llm:
-  model_fast: claude-haiku-5-5     # классификация и извлечение фактов
-  model_strong: claude-sonnet-5-5  # черновики писем и ответы
-  json_retries: 1                  # после этого эскалация владельцу
+  model_fast: claude-haiku-5-5     # reply classification and fact extraction
+  model_strong: claude-sonnet-5-5  # letter rewrites and replies
+  json_retries: 1                  # after that the message escalates to the owner
 
-limits:                        # раздел 10
+limits:
   approvals_before_auto_offer: 10
-  new_per_day: 30              # новые первые письма в сутки, без разгона; ответы в диалогах без лимита
-  outreach_per_run: 1          # первых писем и дожимов за запуск: интервал запусков и есть пауза между ними
+  new_per_day: 30              # new first letters per day; replies inside a dialog are unlimited
+  outreach_per_run: 1          # first letters + follow-ups per run: the run interval is the pause between letters
   send_pause_sec: [60, 180]
-  followup_days: [4, 9]        # длина списка = максимум дожимов на контакт
+  followup_days: [4, 9]        # list length = max follow-ups per contact
   bounce_rate_stop: 0.10
 
 scraping:
   delay_sec: [5, 8]
-  host_delay_sec:              # сайты с жёстким лимитом запросов
-    www.alo.bg: 20             # 429 после ~30 запросов на 3-5 с и держит блок часами
+  host_delay_sec:              # sites with strict rate limits
+    www.alo.bg: 20             # returns 429 after ~30 requests at 3-5 s and keeps the block for hours
   user_agent: "Mozilla/5.0 (compatible; SolarBG-search/0.1)"
 
 gmail:
@@ -56,11 +55,11 @@ gmail:
   sender_name: Иван Петров
 
 notify:
-  digest_hour: 8               # по owner.timezone
+  digest_hour: 8               # in owner.timezone
   email_prefix: "[SOLAR]"
 
 sheet_title: "Solar BG: продавцы ФЕЦ 1-2 МВт"
 
-gcp:                           # Фаза 5: VM solar-bot, бюджет 7 CAD (≈ $5) в месяц -> Pub/Sub -> VM выключается
+gcp:                           # VM budget cap: budget alert -> Pub/Sub -> the VM powers itself off (budget.py)
   budget_subscription: projects/solar-bg/subscriptions/billing-alerts-vm
-  trial_ends: 2027-01-07       # Free Trial: до этой даты активировать полный аккаунт, иначе Google остановит VM
+  trial_ends: 2027-01-07       # GCP Free Trial end: activate a full account before this date or Google stops the VM

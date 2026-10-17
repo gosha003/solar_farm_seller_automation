@@ -1,10 +1,15 @@
-# секреты: никогда не коммитить
+# secrets and private config: never commit
 .env
 .env.*
 !.env.example
 client_secret*.json
 token*.json
 *.pem
+config.local.yaml
+
+# local-only working notes and tool settings
+SPEC.md
+.claude/
 
 # python
 __pycache__/
@@ -12,7 +17,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# рабочие файлы
+# working files
 downloads/
 *.log
 .idea/

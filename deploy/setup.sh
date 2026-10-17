@@ -11,6 +11,7 @@ fi
 mkdir -p "$DIR"
 tar -xzf "$HOME/solar.tgz" -C "$DIR" && rm "$HOME/solar.tgz"
 [ -f "$HOME/solar.env" ] && mv "$HOME/solar.env" "$DIR/.env"
+[ -f "$HOME/config.local.yaml" ] && mv "$HOME/config.local.yaml" "$DIR/solar_outreach/"
 chmod 600 "$DIR/.env"
 [ -x "$DIR/.venv/bin/pip" ] || { rm -rf "$DIR/.venv"; python3 -m venv "$DIR/.venv"; }
 "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"

@@ -14,7 +14,7 @@ def test_single_run_blocks_parallel_and_releases():
 
 def test_owner_facts_are_plain_strings():
     o = load_config()["owner"]  # «Связь: ...» без кавычек YAML читает как словарь
-    assert all(isinstance(f, str) for f in o["facts"] + o["internal_notes"])
+    assert all(isinstance(f, str) for f in o["facts"] + o.get("internal_notes", []))
 
 
 def test_criteria_ranges_are_consistent():

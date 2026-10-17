@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 import yaml
 
+from solar_outreach.config import load_config
+
 TEMPLATES = Path(__file__).parent / "templates"
 BROKER = re.compile(r"real estate|estate|propert|имот|агенц|брокер|broker|consult|group|груп|\bЕ?ООД\b|\bАД\b|\bLtd", re.I)
 CLASSIFIEDS = ("bazar.bg", "alo.bg", "kpd.bg", "olx.bg")
@@ -17,7 +19,11 @@ CLASSIFIEDS = ("bazar.bg", "alo.bg", "kpd.bg", "olx.bg")
 
 @cache
 def template(lang: str) -> dict:
-    return yaml.safe_load((TEMPLATES / f"{lang}.yaml").read_text(encoding="utf-8"))
+    o = load_config()["owner"]
+    text = (TEMPLATES / f"{lang}.yaml").read_text(encoding="utf-8")
+    for key, value in {"name": o["name"][lang], "company": o["company"][lang], "phone": o["phone"], "email": o["email"]}.items():
+        text = text.replace(f"{{{key}}}", value)
+    return yaml.safe_load(text)
 
 
 def language(text: str) -> str:
