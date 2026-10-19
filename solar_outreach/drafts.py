@@ -11,10 +11,12 @@ from urllib.parse import quote
 import yaml
 
 from solar_outreach.config import load_config
+from solar_outreach.sources import PERMIT
 
 TEMPLATES = Path(__file__).parent / "templates"
 BROKER = re.compile(r"real estate|estate|propert|имот|агенц|брокер|broker|consult|group|груп|\bЕ?ООД\b|\bАД\b|\bLtd", re.I)
 CLASSIFIEDS = ("bazar.bg", "alo.bg", "kpd.bg", "olx.bg")
+OPERATING = re.compile(r"действащ|работещ|действующ|работающ|operating|in operation", re.I)
 
 
 @cache
@@ -47,6 +49,12 @@ def is_broker(row: dict) -> bool:
     return web_agency or bool(BROKER.search(row.get("продавец", "")))
 
 
+def is_permit_project(row: dict) -> bool:
+    """The title names a building permit and not an operating plant: the letter asks about the project, not the plant."""
+    title = row.get("заголовок", "")
+    return bool(PERMIT.search(title)) and not OPERATING.search(title)
+
+
 def power_text(kw) -> str:
     try:
         kw = float(kw)
@@ -77,14 +85,15 @@ def first(row: dict, lang: str) -> tuple[str, str]:
     if is_general(row):
         g = t["first"]["general"]
         return g["subject"], f"{g['intro']}\n{numbered(g['questions'])}\n\n{g['terms']}\n\n{t['first']['outro']}\n\n{t['signature']}"
+    tf = {**t["first"], **t["first"]["permit"]} if is_permit_project(row) else t["first"]
     desc, ref = description(row, lang)
-    intro = t["first"]["intro_private"].format(description=desc)
-    extra = f"{t['first']['broker_extra']}\n\n" if is_broker(row) else ""
-    questions = t["first"]["questions"]
+    intro = tf["intro_private"].format(description=desc)
+    extra = f"{tf['broker_extra']}\n\n" if is_broker(row) else ""
+    questions = tf["questions"]
     if str(row.get("цена EUR", "")).replace(".", "").isdigit():
         questions = questions[:-1]  # the price is already in the listing; in the templates the price question is always last
-    body = f"{intro}\n{numbered(questions)}\n\n{extra}{t['first']['outro']}\n\n{t['signature']}"
-    return t["first"]["subject"].format(ref=ref), body
+    body = f"{intro}\n{numbered(questions)}\n\n{extra}{tf['outro']}\n\n{t['signature']}"
+    return tf["subject"].format(ref=ref), body
 
 
 def second(row: dict, lang: str) -> str:

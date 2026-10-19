@@ -25,6 +25,22 @@ first:
   outro: |-
     If you have any questions, you can reach me by email or via WhatsApp or Viber at the number below. I would be glad to discuss all the terms. Thank you in advance!
 
+  # a project with a building permit (title names the permit, not an operating plant): overrides subject/intro/questions
+  permit:
+    subject: "Inquiry about a photovoltaic project - {ref}"
+    intro_private: |-
+      Hello,
+
+      My name is {name} and I represent {company}. Our company owns and operates photovoltaic plants across Bulgaria. In addition to operating plants, we are also considering 1-3 MW projects with an issued building permit.
+
+      I saw your listing about a project for {description} and would be glad to learn more:
+    questions:
+      - Is the listing still current, and what stage is the project at?
+      - Until when is the building permit valid?
+      - What is the approved grid connection capacity, and has a connection agreement been signed with the distribution company?
+      - Is the land owned or leased?
+      - What is the asking price, what does it include, and is the project sold together with the company?
+
   general:
     subject: Inquiry about photovoltaic plants and land plots
     intro: |-
