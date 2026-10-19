@@ -81,3 +81,17 @@ def test_general_broker_letter_has_no_listing_and_always_asks_price():
         assert rules.violations(f"{subject}\n{body}", sig) == [] and "\n4. " in body
         assert rules.violations(drafts.followup(lang, "08.10.2026", True), sig) == []
     assert "Видях Вашата обява" not in drafts.first(row, "bg")[1] and "поземлени имоти" in drafts.first(row, "bg")[1]
+
+
+def test_permit_project_gets_permit_letter():
+    permit = {**PRIVATE, "площадка": "olx.bg", "заголовок": "Продавам 2 MW ФЕЦ с разрешително за строеж"}
+    for lang in ("bg", "en", "ru"):
+        subject, body = drafts.first(permit, lang)
+        assert rules.violations(f"{subject}\n{body}", drafts.template(lang)["signature"]) == [], lang
+    subject, body = drafts.first(permit, "bg")
+    assert subject.startswith("Запитване за проект") and "проекти с мощност 1-3 MW с издадено разрешение" in body
+    assert "\n2. До кога е валидно разрешението за строеж?" in body and "действаща ли е" not in body
+    assert "\n5. Каква е исканата цена" in body
+    assert "\n5." not in drafts.first({**permit, "цена EUR": "900000"}, "bg")[1]   # known price: last question dropped
+    operating = {**permit, "заголовок": "Действаща ФЕЦ 2 MW с разрешение за строеж и акт 16"}
+    assert "\n1. Централата действаща ли е" in drafts.first(operating, "bg")[1]
