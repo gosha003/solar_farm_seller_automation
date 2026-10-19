@@ -1,6 +1,6 @@
 # Solar BG Outreach
 
-An autonomous deal-sourcing agent for buying operating 1–2 MW solar (PV) plants in Bulgaria.
+An autonomous deal-sourcing agent for buying operating 1–3 MW solar (PV) plants (and projects with a building permit) in Bulgaria.
 It crawls Bulgarian listing sites, qualifies and scores each plant, writes to sellers in their
 own language, reads their replies with an LLM, tracks every deal in Google Sheets and pings the
 owner on Telegram only when a human decision is needed.

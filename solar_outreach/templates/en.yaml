@@ -10,11 +10,11 @@ first:
   intro_private: |-
     Hello,
 
-    My name is {name} and I represent {company}. Our company owns and operates photovoltaic plants across Bulgaria. Currently, we are looking to acquire an additional operating plant of 1-2 MW.
+    My name is {name} and I represent {company}. Our company owns and operates photovoltaic plants across Bulgaria. Currently, we are looking to acquire an additional operating plant of 1-3 MW.
 
     I saw your listing for {description} and would be glad to learn more:
   broker_extra: |-
-    If you have other operating plants of 1-2 MW, I would be glad to receive information about them. In addition to operating plants, we are also considering land plots suitable for the construction of a photovoltaic plant, with a building permit and secured grid connection capacity.
+    If you have other operating plants of 1-3 MW, I would be glad to receive information about them. In addition to operating plants, we are also considering land plots suitable for the construction of a photovoltaic plant, with a building permit and secured grid connection capacity.
 
     Could you also let me know the terms of cooperation you work under (commission, exclusivity, transaction procedure)? We would prefer to clarify them at the outset.
   questions:
@@ -30,7 +30,7 @@ first:
     intro: |-
       Hello,
 
-      My name is {name} and I represent {company}. Our company owns and operates photovoltaic plants across Bulgaria. We are looking to acquire operating photovoltaic plants of 1-2 MW anywhere in the country. If you have such plants in your portfolio, please send me information about them.
+      My name is {name} and I represent {company}. Our company owns and operates photovoltaic plants across Bulgaria. We are looking to acquire operating photovoltaic plants of 1-3 MW anywhere in the country. If you have such plants in your portfolio, please send me information about them.
 
       In addition to operating plants, we are also considering land plots suitable for the construction of a photovoltaic plant, with a building permit and secured grid connection capacity.
 

@@ -1,4 +1,4 @@
-"""Search for brokers and agencies that sell operating 1-2 MW PV plants and plots for PV (not tied to a listing).
+"""Search for brokers and agencies that sell operating 1-3 MW PV plants and plots for PV (not tied to a listing).
 Claude only finds the sites; contacts are taken from the pages by our own code (Fetcher: robots.txt, pauses), and invented
 links and addresses are dropped. Weekly: python -m solar_outreach.search --brokers
 """
@@ -14,7 +14,7 @@ from solar_outreach.sources import Listing, web
 
 PROMPT = """Find brokers, real-estate or business-sale agencies and energy-asset consultants in Bulgaria that \
 mediate the sale of (a) operating photovoltaic power plants (ФЕЦ / фотоволтаична централа / соларен парк) of about \
-1-2 MW, or (b) land plots suitable for building a solar plant, with a building permit and grid connection capacity. \
+1-3 MW, or (b) land plots suitable for building a solar plant, with a building permit and grid connection capacity. \
 Search in Bulgarian and English, e.g. "брокер фотоволтаични централи продажба", "продажба на ФЕЦ посредник", \
 "парцели за фотоволтаичен парк с разрешение за строеж", "solar park Bulgaria broker M&A", "агенция за енергийни проекти". \
 Run several searches. Then list each company once (its contact page or homepage; not listing pages, classifieds portals \

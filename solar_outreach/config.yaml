@@ -13,12 +13,12 @@ owner:                         # letters may state only these facts about the bu
   timezone: America/Toronto
   facts:                       # what the LLM may tell sellers about the buyer, and nothing beyond it
     - The company owns and operates photovoltaic plants in Bulgaria. Never state capacities, locations or the number of plants.
-    - The goal is to buy a ready, operating 1-2 MW PV plant.
+    - The goal is to buy a ready, operating 1-3 MW PV plant, or a 1-3 MW project with a building permit.
     - "Contact: email and WhatsApp/Viber on the phone above. Never say where the buyer is located."
 
 criteria:                      # which listings qualify
   min_kwp: 1000
-  max_kwp: 2000
+  max_kwp: 3000
   price_per_kwp_eur:
     preferred: [800, 900]
     acceptable: [700, 1000]
@@ -27,7 +27,7 @@ criteria:                      # which listings qualify
   min_year_preferred: 2018
   regime: any                  # feed-in tariff or free market (IBEX)
   region: all_bulgaria
-  status_required: operating
+  status_required: operating_or_permit   # operating plants and projects with a building permit
 
 eur_bgn: 1.95583               # fixed EUR/BGN peg
 
@@ -58,7 +58,7 @@ notify:
   digest_hour: 8               # in owner.timezone
   email_prefix: "[SOLAR]"
 
-sheet_title: "Solar BG: продавцы ФЕЦ 1-2 МВт"
+sheet_title: "Solar BG: продавцы ФЕЦ 1-3 МВт"
 
 gcp:                           # VM budget cap: budget alert -> Pub/Sub -> the VM powers itself off (budget.py)
   budget_subscription: projects/solar-bg/subscriptions/billing-alerts-vm

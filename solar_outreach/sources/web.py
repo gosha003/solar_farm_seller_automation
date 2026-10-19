@@ -1,4 +1,4 @@
-"""Web search via Claude (server tool web_search): finds 1-2 MW PV listings on any site.
+"""Web search via Claude (server tool web_search): finds 1-3 MW PV listings on any site.
 Claude only searches; our Fetcher opens the pages (robots.txt, pauses). Once a day: python -m solar_outreach.search --web
 """
 import re
@@ -11,14 +11,16 @@ from solar_outreach.config import load_config
 from solar_outreach.sources import Listing, alo, bazar, kpd
 
 PROMPT = """Find current listings (classified ads, real-estate or business-for-sale sites, broker pages) offering an \
-OPERATING photovoltaic power plant (ФЕЦ / фотоволтаична централа / соларен парк) for sale in Bulgaria with capacity \
-roughly 0.9-2.2 MW (900-2200 kWp). Search in Bulgarian and English, e.g. "продава работеща фотоволтаична централа 1 MW", \
-"ФЕЦ 1,5 MW продажба", "фотоволтаичен парк 2 MW продава", "operating solar park Bulgaria for sale 1 MW". \
+OPERATING photovoltaic power plant (ФЕЦ / фотоволтаична централа / соларен парк), or a PV project with an issued \
+building permit (разрешение за строеж), for sale in Bulgaria with capacity roughly 1-3 MW (1000-3000 kWp). Search in \
+Bulgarian and English, e.g. "продава работеща фотоволтаична централа 1 MW", "ФЕЦ 1,5 MW продажба", \
+"фотоволтаичен парк 2 MW продава", "ФЕЦ 3 MW с разрешение за строеж", "operating solar park Bulgaria for sale 1 MW". \
 Run several searches. Then list every individual listing page from the results (one ad per URL; not search-result \
-pages, news, encyclopedias or company homepages) that may offer a built plant for sale. Include it even when the \
-capacity or status cannot be confirmed from the snippet: each page is checked separately afterwards. One per line:
+pages, news, encyclopedias or company homepages) that may offer a built plant or a permitted project for sale. Include \
+it even when the capacity or status cannot be confirmed from the snippet: each page is checked separately afterwards. \
+One per line:
 <url> | <capacity if stated> <price if stated> <place>
-Skip only what is clearly a project without a built plant, a land plot, a service or equipment. If none, answer NONE."""
+Skip only what is clearly a project or land plot without a building permit, a service or equipment. If none, answer NONE."""
 OWN = {"bazar.bg": bazar, "www.alo.bg": alo, "alo.bg": alo, "www.kpd.bg": kpd}
 SKIP_HOSTS = ("olx.bg", "facebook.com", "youtube.com", "linkedin.com", "instagram.com", "tiktok.com")
 

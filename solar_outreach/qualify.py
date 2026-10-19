@@ -1,7 +1,7 @@
 """Selection and scoring by `criteria` from config.yaml.
 
 verdict: «кандидат» (power known and within min_kwp..max_kwp) / «мелкая», «крупная», «дорого», «мощность неизвестна» (don't write).
-Owner decision 2026-10-10: cards only for 1-2 MW stations with confirmed power, no soft bounds, no "we'll find out later".
+Owner decision 2026-10-10: cards only for stations within min..max kW with confirmed power, no soft bounds, no "we'll find out later".
 """
 from solar_outreach import parse
 
@@ -29,6 +29,8 @@ def qualify(kw: float | None, eur: float | None, text: str, yr: int | None, regi
             score += 30
         elif p["acceptable"][0] <= per_kw <= p["acceptable"][1]:
             score += 20
+            if per_kw > p["preferred"][1]:  # owner 2026-10-19: above the preferred cap only if the terms are good
+                notes.append(f"выше {p['preferred'][1]} €/кВт: только при хороших условиях")
         else:
             score += 5
     if yr and yr >= c["min_year_preferred"]:

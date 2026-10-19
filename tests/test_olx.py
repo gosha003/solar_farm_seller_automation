@@ -27,8 +27,8 @@ def test_cards_keep_unknown_power_and_drop_out_of_range():
 
 
 def test_olx_noise_titles_are_not_station_sales():
-    for t in ("2 MW ФЕЦ с разрешително за строеж. Започване веднага", "Бензиностанция и Газстанция ФОТОВОЛТАИЦИ, Автомивка"):
-        assert not is_station_sale(t)
+    assert not is_station_sale("Бензиностанция и Газстанция ФОТОВОЛТАИЦИ, Автомивка")
+    assert is_station_sale("2 MW ФЕЦ с разрешително за строеж. Започване веднага")  # permitted project: kept since 2026-10-19
     assert is_station_sale("Продавам действаща фотоволтаична централа 1.5 MW")
 
 
