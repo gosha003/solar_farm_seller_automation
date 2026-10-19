@@ -1,5 +1,6 @@
 """Google Sheets: the single source of truth. Reads and writes in batches."""
 import os
+import re
 from functools import cache
 
 from googleapiclient.discovery import build
@@ -101,11 +102,18 @@ def read(api, sid: str, tab: str) -> list[dict]:
     return [{**dict(zip(head, r + [""] * (len(head) - len(r)))), "_row": i} for i, r in enumerate(rows[1:], 2)]
 
 
+def cells(r: dict, head: list[str]) -> list:
+    """A row for USER_ENTERED (it keeps dates and numbers typed). Phone-like strings ("+359...", "0888...",
+    "+359..., +359...") get a leading ' so Sheets stores them as text instead of a number that loses the + or
+    the 0, or garbles a list. The ' is not part of the value: reads return the string without it."""
+    vals = ["" if r.get(h) is None else r.get(h) for h in head]
+    return ["'" + v if isinstance(v, str) and re.match(r"\+|0\d", v) else v for v in vals]
+
+
 def update(api, sid: str, tab: str, rows: list[dict]) -> None:
     """Overwrite whole rows (by `_row`) in a single batch request."""
     head = TABS[tab]
-    data = [{"range": f"'{tab}'!A{r['_row']}", "values": [["" if r.get(h) is None else r.get(h) for h in head]]}
-            for r in rows]
+    data = [{"range": f"'{tab}'!A{r['_row']}", "values": [cells(r, head)]} for r in rows]
     if data:
         api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "USER_ENTERED", "data": data}).execute()
 
@@ -127,7 +135,6 @@ def set_kv(api, sid: str, tab: str, values: dict) -> None:
 
 def append(api, sid: str, tab: str, rows: list[dict]) -> None:
     if rows:
-        head = TABS[tab]
-        values = [["" if r.get(h) is None else r.get(h) for h in head] for r in rows]
+        values = [cells(r, TABS[tab]) for r in rows]
         api.values().append(spreadsheetId=sid, range=f"'{tab}'!A1", valueInputOption="USER_ENTERED",
                             insertDataOption="INSERT_ROWS", body={"values": values}).execute()
