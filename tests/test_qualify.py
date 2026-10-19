@@ -15,16 +15,23 @@ def test_alo_15mw_is_top_candidate():
 
 def test_size_and_price_bands():
     assert q(60, 54_300)["verdict"] == "мелкая"
-    assert q(950, None)["verdict"] == "мелкая"      # no soft bounds: strictly 1000-2000
-    assert q(2100, None)["verdict"] == "крупная"
-    assert q(1000, None)["verdict"] == q(2000, None)["verdict"] == "кандидат"
+    assert q(950, None)["verdict"] == "мелкая"      # no soft bounds: strictly min_kwp..max_kwp
+    assert q(3100, None)["verdict"] == "крупная"
+    assert q(1000, None)["verdict"] == q(2500, None)["verdict"] == q(3000, None)["verdict"] == "кандидат"
     assert q(5000, None)["verdict"] == "крупная"
     assert q(1000, 1_200_000)["verdict"] == "дорого"           # 1200 €/kW > skip_above
     cap = C["price_per_kwp_eur"]["skip_above"]
     assert q(1000, (cap + 1) * 1000)["verdict"] == "дорого"
     assert q(1000, cap * 1000)["verdict"] == "кандидат"         # boundary inclusive
-    cheap = q(1000, 500_000)
+    cheap = q(1000, (C["price_per_kwp_eur"]["suspicious_below"] - 1) * 1000)
     assert cheap["verdict"] == "кандидат" and "подозрительно дешево" in cheap["notes"]
+
+
+def test_above_preferred_cap_is_written_but_flagged():
+    top = C["price_per_kwp_eur"]["preferred"][1]
+    r = q(1000, (top + 1) * 1000)
+    assert r["verdict"] == "кандидат" and any("только при хороших условиях" in n for n in r["notes"])
+    assert not q(1000, top * 1000)["notes"]
 
 
 def test_unknown_power_is_not_written():

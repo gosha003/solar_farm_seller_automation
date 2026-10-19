@@ -24,12 +24,14 @@ UNAVAILABLE = {
 
 # A plant-for-sale listing: the keyword ФЕЦ in the title, no services/equipment/buying.
 PV = re.compile(r"фотовол|фотоволт|фец|фвец|соларе?н\w* (парк|централ)|pv парк|\d\s*(mw|mwp|мвт|мегават)", re.I)
-# Services/equipment/buying, and non-operating plants: a plot «за ФЕЦ», a project, a permit.
-NOT_SALE = re.compile(r"изгражд|проектир|монтаж|инвертор|панел|търс|\bкупува|ремарке|^батери|бойлер|компенсир"
+# Services/equipment/buying: never a sale.
+SERVICES = re.compile(r"изгражд|проектир|монтаж|инвертор|панел|търс|\bкупува|ремарке|^батери|бойлер|компенсир"
                       r"|под наем|сглобен|оборудван|подд?ръжк|профилакт|почиств|кабел|конструкц|система за"
-                      r"|за фотовол|за фец|подходящ|проект|уведомление|разрешени|разрешител|за строеж"
                       r"|бензиностанц|газстанц|автомивк|автосервиз"
                       r"|електротехник|работа|служител|оператор|техник|косене|трева|земеделска земя|декара", re.I)
+# Not an operating plant: a plot «за ФЕЦ», a project. Kept when the title names a building permit (owner 2026-10-19).
+NOT_OPERATING = re.compile(r"за фотовол|за фец|подходящ|проект|уведомление|разрешени|разрешител|за строеж", re.I)
+PERMIT = re.compile(r"(разрешени\w*|разрешително) (за|на) строеж|ready[- ]to[- ]build|\bRTB\b", re.I)
 
 
 @dataclass
@@ -45,7 +47,8 @@ class Listing:
 
 
 def is_station_sale(title: str) -> bool:
-    return bool(PV.search(title)) and not NOT_SALE.search(title)
+    return (bool(PV.search(title)) and not SERVICES.search(title)
+            and (not NOT_OPERATING.search(title) or bool(PERMIT.search(title))))
 
 
 def robots_rules(text: str) -> list[tuple[bool, str]]:
