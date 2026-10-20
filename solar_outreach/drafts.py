@@ -116,9 +116,11 @@ def second(row: dict, lang: str) -> str:
     return f"{t['intro']}\n{numbered(qs)}\n\n{t['outro']}\n\n{template(lang)['signature']}"
 
 
-def followup(lang: str, date: str, general: bool = False) -> str:
+def followup(lang: str, date: str, general: bool = False, reply: bool = False) -> str:
+    """reply: the seller answered once and went quiet after our letter with the remaining questions ({date})."""
     t = template(lang)
-    return f"{t['followup']['body_general' if general else 'body'].format(date=date)}\n\n{t['signature']}"
+    key = "body_reply" if reply else "body_general" if general else "body"
+    return f"{t['followup'][key].format(date=date)}\n\n{t['signature']}"
 
 
 def manual_links(phone: str, text: str) -> tuple[str, str]:

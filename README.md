@@ -116,7 +116,7 @@ solar_outreach/
   llm.py             Claude wrapper: strict JSON, retry, cached system prompt
   approval.py        Telegram approval loop, limits, sending, digest
   inbox.py           reply classification, fact extraction, escalations
-  followup.py        follow-ups on day 4 and 9
+  followup.py        follow-ups on day 4 and 9 after the first letter or after our reply, 2 per contact in total
   owner.py           owner commands (/stats, /pause, /auto, /queue, ...), digest
   site_queue.py      CLI for the routine that sends «Ручная очередь» messages on alo.bg and WhatsApp
   alo_reply.py       CLI for the routine that reads seller replies in the alo.bg account
