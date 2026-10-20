@@ -34,6 +34,14 @@ def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> int:
     return call("sendMessage", **params)["message_id"]
 
 
+def try_send(text: str) -> None:
+    """A notice whose loss is harmless (📤 sent, ⛔ skipped): a Telegram blip must not abort a pass after letters went out."""
+    try:
+        send(text)
+    except Exception:  # Telegram down or not configured on this machine
+        pass
+
+
 def urgent(text: str) -> None:
     """Urgent: Telegram right away; if Telegram is down, an email to the owner prefixed [SOLAR]."""
     try:

@@ -8,6 +8,7 @@ sending within limits, digest. Search is a separate timed process, `python -m so
 it is slow (polite pauses between site requests).
 """
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -22,6 +23,8 @@ from solar_outreach.config import Busy, load_config, single_run
 ALERT_AFTER = 3        # one-off Telegram/Google timeouts aren't worth an alert; three in a row are
 INBOX_EVERY = 60       # seconds between mail checks; in between we wait on Telegram with long polling
 PING_EVERY = 300       # every 5 min: Google Cloud spending cap and HEALTHCHECK_URL (optional external heartbeat)
+FAIL_FILE = Path(tempfile.gettempdir()) / "solar_outreach_failures"  # the failure counter while the sheet is unreachable
+STOP = {"asked": False, "busy": False}  # SIGTERM (deploy, systemctl restart) waits for the pass to finish
 
 
 def run(test_n: int = 0, with_inbox: bool = True) -> int:
@@ -33,13 +36,17 @@ def run(test_n: int = 0, with_inbox: bool = True) -> int:
         stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
         if stats["входящих"]:
             print("входящие:", stats, flush=True)
-    return approval.main(test_n)
+        if stats.get("LLM недоступен"):  # replies wait unread: approval still runs, but it counts as a failed pass
+            res = approval.main(test_n, full=False)
+            failure(f"LLM недоступен: {stats['LLM недоступен']}")
+            return res
+    return approval.main(test_n, full=with_inbox)  # only a pass with the inbox resets the failure counter
 
 
 def failure(err: str) -> None:
     """Consecutive-failure counter in «_state» (approval.main resets it on a successful pass).
     If the sheet is unavailable the counter lives in a local file, so the owner isn't alerted every minute."""
-    f = Path(tempfile.gettempdir()) / "solar_outreach_failures"
+    f = FAIL_FILE
     try:
         api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
         n = int(sheets.kv(api, sid, "_state").get("ошибок подряд", {}).get("значение") or 0) + 1
@@ -56,7 +63,9 @@ def once(test_n: int = 0, with_inbox: bool = True) -> int | None:
     """A pass with error handling. Returns the Telegram offset, or None (failure / busy with search)."""
     try:
         with single_run("sheet", wait=600):  # search holds the lock only while writing
-            return run(test_n, with_inbox)
+            res = run(test_n, with_inbox)
+        FAIL_FILE.unlink(missing_ok=True)  # otherwise a second Sheets outage starts counting from the first one's 3+
+        return res
     except Busy:
         return None
     except Exception as e:  # no secrets in the text: Telegram exceptions are already scrubbed
@@ -65,12 +74,27 @@ def once(test_n: int = 0, with_inbox: bool = True) -> int | None:
         return None
 
 
+def stop(*_) -> None:
+    """SIGTERM between passes exits at once; during a pass it waits for the pass to end (TimeoutStopSec in the unit),
+    so a deploy never kills the bot between a Gmail send and its sheet write."""
+    STOP["asked"] = True
+    if not STOP["busy"]:
+        sys.exit(0)
+
+
 def daemon() -> None:
     last_inbox = last_ping = 0.0
     offset = None
-    while True:
+    signal.signal(signal.SIGTERM, stop)
+    while not STOP["asked"]:
         full = time.time() - last_inbox >= INBOX_EVERY
-        res = once(with_inbox=full)
+        STOP["busy"] = True
+        try:
+            res = once(with_inbox=full)
+        finally:
+            STOP["busy"] = False
+        if STOP["asked"]:
+            break
         if full:
             last_inbox = time.time()
         if res is None:
@@ -86,6 +110,11 @@ def daemon() -> None:
                                   {"расходы Google Cloud": f"{datetime.now():%Y-%m-%d %H:%M} {spent}"})
             except Exception as e:  # a failed budget check doesn't crash the bot; Google still sends an email
                 print(f"бюджет: {type(e).__name__}", flush=True)
+                try:  # the cap that powers the VM off is not working: the digest must say so
+                    sheets.set_kv(sheets.service(), os.environ["SPREADSHEET_ID"], "_state",
+                                  {"расходы Google Cloud": f"{datetime.now():%Y-%m-%d %H:%M} проверка не работает: {type(e).__name__}"})
+                except Exception:
+                    pass
             if os.environ.get("HEALTHCHECK_URL"):
                 try:
                     requests.get(os.environ["HEALTHCHECK_URL"], timeout=10)
@@ -102,6 +131,7 @@ if __name__ == "__main__":
     load_config()
     if "--daemon" in sys.argv:
         daemon()
+        sys.exit(0)  # SIGTERM: the pass finished, stop without another one
     n = int(sys.argv[sys.argv.index("--test") + 1]) if "--test" in sys.argv else 0
     if once(n) is None:
         sys.exit(1)

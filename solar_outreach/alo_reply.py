@@ -48,14 +48,19 @@ def note(api, sid, station_id: str, text: str, title: str) -> str:
     if not st or not same_title(title, st["заголовок"]):
         return f"Отказ: диалог «{title}» не от {station_id} («{st['заголовок'] if st else 'нет такой станции'}»). Ничего не записано."
     before = {k: dict(v) for k, v in stations.items()}
-    c = owner.Ctx(api, sid, cfg, stations, by_id, sheets.read(api, sid, "Диалоги"), settings, state)
+    dialogs = sheets.read(api, sid, "Диалоги")
+    c = owner.Ctx(api, sid, cfg, stations, by_id, dialogs, settings, state)
     msg = owner.note(c, station_id, text, date.today())
-    if st and st["статус переписки"] == PENDING:  # auto-reply etc.: clear the mark and keep waiting
+    if st["статус переписки"] == PENDING and c.new_dialogs:  # recorded (auto-reply etc.): clear the mark, keep waiting
+        # not recorded (LLM down): the mark stays, so the next run reads the reply again and the digest reminds
         st["статус переписки"], st["следующий шаг"] = "ждём ответа", "ждать ответа"
     queue = []
     auto = (settings.get("approval_mode") or cfg["approval_mode"]) == "auto"
     for d in c.new_drafts:
         approval.present(d, stations[d["id станции"]], auto, queue)
+    # the routine sends the queue right after this: a follow-up queued before the reply must not go out with it
+    sheets.update(api, sid, "Черновики", list(approval.cancel_followups(api, sid, by_id, dialogs + c.new_dialogs).values()))
+    approval.gate(api, sid, queue, stations)
     sheets.append(api, sid, "Ручная очередь", queue)
     sheets.append(api, sid, "Диалоги", c.new_dialogs)
     sheets.append(api, sid, "Отказы", c.new_refusals)

@@ -25,7 +25,9 @@ def latest(subscription: str, session=None) -> dict | None:
         except DefaultCredentialsError:
             return None
         session = AuthorizedSession(creds)
-    msgs = session.post(f"{API}{subscription}:pull", json={"maxMessages": 100}, timeout=30).json().get("receivedMessages", [])
+    resp = session.post(f"{API}{subscription}:pull", json={"maxMessages": 100}, timeout=30)
+    resp.raise_for_status()  # 403/404 (role or subscription gone) must not look like "no new reports": the cap would be off
+    msgs = resp.json().get("receivedMessages", [])
     if not msgs:
         return None
     session.post(f"{API}{subscription}:acknowledge", json={"ackIds": [m["ackId"] for m in msgs]}, timeout=30)

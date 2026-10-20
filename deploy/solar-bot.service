@@ -10,6 +10,8 @@ Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
 ExecStart=__DIR__/.venv/bin/python -m solar_outreach.engine --daemon
 Restart=always
 RestartSec=30
+# SIGTERM (deploy, restart) lets the current pass finish, so a letter is never cut off between Gmail and the sheet
+TimeoutStopSec=15min
 CPUWeight=500
 OOMScoreAdjust=-500
 # leak safety net: at 400 MB systemd kills and restarts the bot (flock is released automatically)

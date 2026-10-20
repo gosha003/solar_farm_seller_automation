@@ -41,3 +41,17 @@ def test_manual_first_message_gets_manual_followup():
     assert d["канал"] == "сайт (ручная)" and d["тред Gmail"] == ""
     [e] = due([{**FIRST, "тред Gmail": ""}], "2026-10-05")
     assert e["канал"] == "email (вручную)"                       # the owner's own mailbox: the system won't send
+
+
+def test_late_first_followup_is_not_chased_by_the_second_at_once():
+    up1 = {**FIRST, "id": "D002", "тип": "дожим 1", "отправлено": "2026-10-10"}   # sent late, after a /pause
+    assert due([FIRST, up1], "2026-10-10") == []
+    assert due([FIRST, up1], "2026-10-14") == []                                # 5 days apart, as day 4 -> day 9
+    assert due([FIRST, up1], "2026-10-15")[0]["тип"] == "дожим 2"
+
+
+def test_auto_reply_postpones_followups_but_the_letter_keeps_our_date():
+    away = {"id станции": "S001", "направление": "in", "дата": "2026-10-03", "краткое содержание": "[auto_reply] отпуск"}
+    assert due([FIRST], "2026-10-05", [away]) == []
+    [d] = due([FIRST], "2026-10-07", [away])
+    assert "01.10.2026" in d["текст"]
