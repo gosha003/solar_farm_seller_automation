@@ -11,12 +11,14 @@ from urllib.parse import quote
 import yaml
 
 from solar_outreach.config import load_config
-from solar_outreach.sources import PERMIT
+from solar_outreach.sources import NOT_OPERATING, PERMIT
 
 TEMPLATES = Path(__file__).parent / "templates"
 BROKER = re.compile(r"real estate|estate|propert|имот|агенц|брокер|broker|consult|group|груп|\bЕ?ООД\b|\bАД\b|\bLtd", re.I)
 CLASSIFIEDS = ("bazar.bg", "alo.bg", "kpd.bg", "olx.bg")
 OPERATING = re.compile(r"действащ|работещ|действующ|работающ|operating|in operation", re.I)
+# checklist items that don't apply to a project that is not built yet (second letter, inbox.missing_items)
+PERMIT_SKIP = {"5 год ввода", "6 выработка/выручка", "7 режим продажи", "8 панели", "8 инверторы"}
 
 
 @cache
@@ -50,28 +52,36 @@ def is_broker(row: dict) -> bool:
 
 
 def is_permit_project(row: dict) -> bool:
-    """The title names a building permit and not an operating plant: the letter asks about the project, not the plant."""
+    """A permit or plot/project title (sources keep those only with a permit), or a permit only in the text (search
+    --import note), and not an operating plant: the letter asks about the project, not the plant."""
+    if is_general(row):  # a broker's title is its web page («енергийни проекти»), not a plant
+        return False
     title = row.get("заголовок", "")
-    return bool(PERMIT.search(title)) and not OPERATING.search(title)
+    permit = (PERMIT.search(title) or NOT_OPERATING.search(title)
+              or "разрешение на строительство в тексте" in row.get("примечание", ""))
+    return bool(permit) and not OPERATING.search(title)
 
 
-def power_text(kw) -> str:
+def power_text(kw, lang: str = "bg") -> str:
+    """Decimal point in en, comma in bg/ru; МВт/кВт in ru."""
     try:
         kw = float(kw)
     except (TypeError, ValueError):
         return ""
-    return f"{kw / 1000:g} MW".replace(".", ",") if kw >= 1000 else f"{kw:g} kW"
+    mw, k = ("МВт", "кВт") if lang == "ru" else ("MW", "kW")
+    s = f"{kw / 1000:g} {mw}" if kw >= 1000 else f"{kw:g} {k}"
+    return s if lang == "en" else s.replace(".", ",")
 
 
 def description(row: dict, lang: str) -> tuple[str, str]:
     """(description for «Видях Вашата обява за ...», ref for the subject). Sheet facts only."""
     noun = {"bg": "фотоволтаична централа", "en": "a photovoltaic plant", "ru": "фотоэлектрическая станция"}[lang]
     where = {"bg": "в района на", "en": "in the area of", "ru": "в районе"}[lang]
-    power = power_text(row.get("мощность кВт"))
+    power = power_text(row.get("мощность кВт"), lang)
     place = row.get("регион", "")
     place = "" if place in ("", "неизвестно") else place
     desc = " ".join(filter(None, [noun, power, f"{where} {place}" if place else ""]))
-    ad_no = re.findall(r"\d{5,}", row.get("ссылка", ""))
+    ad_no = re.findall(r"(?<!\d)\d{5,8}(?!\d)", row.get("ссылка", ""))  # 9+ digits would read as a phone number
     ref = place or (f"{'обява' if lang == 'bg' else 'listing' if lang == 'en' else 'объявление'} {ad_no[-1]}" if ad_no else power)
     return desc, ref or noun
 
@@ -100,8 +110,9 @@ def second(row: dict, lang: str) -> str:
     """Only questions with no answer yet (the cell status doesn't start with «получен»/«отказ»)."""
     t = template(lang)["second"]
     answered = lambda key: str(row.get(key, "")).startswith(("получен", "отказ"))
-    qs = [q for key, q in t["questions"].items()
-          if key == "docs" or not answered(key) or (key == "8 панели" and not answered("8 инверторы"))]
+    skip = PERMIT_SKIP if is_permit_project(row) else set()
+    qs = [q for key, q in t["questions"].items() if key not in skip and (
+          key == "docs" or not answered(key) or (key == "8 панели" and not answered("8 инверторы")))]
     return f"{t['intro']}\n{numbered(qs)}\n\n{t['outro']}\n\n{template(lang)['signature']}"
 
 

@@ -16,7 +16,7 @@ first:
   broker_extra: |-
     If you have other operating plants of 1-3 MW, I would be glad to receive information about them. In addition to operating plants, we are also considering land plots suitable for the construction of a photovoltaic plant, with a building permit and secured grid connection capacity.
 
-    Could you also let me know the terms of cooperation you work under (commission, exclusivity, transaction procedure)? We would prefer to clarify them at the outset.
+    Could you also let me know your terms of cooperation, such as commission, exclusivity and the transaction procedure? We would prefer to clarify them at the outset.
   questions:
     - Is the plant operating at the moment, and is the listing still current?
     - What is the connected capacity and what are the terms of the grid connection agreement?
@@ -57,7 +57,7 @@ first:
       - "Are the main documents in place: title to the land, building permit, and the grid connection agreement with the distribution company?"
       - What is the asking price?
     terms: |-
-      Could you also let me know the terms of cooperation you work under (commission, exclusivity, transaction procedure)? We would prefer to clarify them at the outset.
+      Could you also let me know your terms of cooperation, such as commission, exclusivity and the transaction procedure? We would prefer to clarify them at the outset.
 
 second:
   intro: "Thank you for the information. To evaluate the plant, could you please also clarify:"
@@ -68,7 +68,7 @@ second:
     "8 панели": Make and model of the panels and inverters.
     "9 земля собств/аренда": Is the land owned or leased? If leased, until when and from whom?
     "10 актив/SPV, обременения": Is the plant itself for sale or the company; are there any loans, encumbrances or pledges?
-    docs: Please send copies of the documents from item 3 to {email}.
+    docs: Please send copies of the land title, the building permit and the grid connection agreement to {email}.
   outro: Thank you!
 
 followup:
