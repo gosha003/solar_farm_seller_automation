@@ -9,7 +9,7 @@ from solar_outreach.sources import Listing
 
 # alo.bg answers 429 after ~30 requests in a row: keep the number of search requests small.
 QUERIES = ["фотоволтаична централа", "фец продажба", "фотоволтаичен парк", "фотоволтаична централа 1 mw",
-           "фотоволтаична централа работеща", "соларен парк"]
+           "фотоволтаична централа работеща", "соларен парк", "фец разрешение за строеж"]
 
 
 def ad_links(html: str) -> dict[str, str]:

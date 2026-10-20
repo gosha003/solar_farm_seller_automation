@@ -13,7 +13,8 @@ from solar_outreach import parse
 from solar_outreach.config import load_config
 from solar_outreach.sources import Listing
 
-QUERIES = ["фотоволтаична централа", "фотоволтаичен парк", "соларен парк", "ФЕЦ продава", "фотоволтаична MW"]
+QUERIES = ["фотоволтаична централа", "фотоволтаичен парк", "соларен парк", "ФЕЦ продава", "фотоволтаична MW",
+           "фотоволтаичен парк разрешение за строеж"]
 PAGES = 3
 LOCATIONS: dict[str, str] = {}  # {link: «Город»} from the card: the listing page draws the place as a map
 

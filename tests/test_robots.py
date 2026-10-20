@@ -44,3 +44,9 @@ def test_bazar_and_wildcards():
 def test_multiple_user_agents_share_group():
     r = robots_rules("User-agent: bot1\nUser-agent: *\nDisallow: /x\n")
     assert not robots_allows(r, "/x/y")
+
+
+def test_leading_bom_is_ignored():
+    bom = chr(0xFEFF)
+    for text in (bom + BP, bom.encode().decode("latin-1") + BP):  # charset=utf-8, or requests' latin-1 default
+        assert not robots_allows(robots_rules(text), "/bg/search?x=1")

@@ -7,15 +7,20 @@ import re
 
 from bs4 import BeautifulSoup
 
-from solar_outreach.sources import Listing
+from solar_outreach import parse
+from solar_outreach.sources import PERMIT, Listing
 
 BASE = "https://www.imot.bg/obiavi/prodazhbi/biznes-imot"
 MAX_PAGES = 250
 TYPE = "СОЛАРЕН ПАРК"
+# a running plant, present tense only: project cards say «въвеждане в експлоатация 2027», «ще произвежда», «в работа»
+RUNNING = re.compile(r"работещ|действащ|(?<!бъде )въведен|акт 16|за ползване|(?:в експлоатация|в работа) от", re.I)
 
 
 def card_links(html: str) -> tuple[int, dict[str, str]]:
-    """(number of cards on the page, {link: card text} only for the «СОЛАРЕН ПАРК» type)."""
+    """(number of cards on the page, {link: short title} only for the «СОЛАРЕН ПАРК» type).
+    The card text is a description snippet («панели», «инвертори», «в работа»), not a title, so it never meets the title
+    filter: the title is the power from the card plus «проект» when the card names a project without a building permit."""
     soup = BeautifulSoup(html, "html.parser")
     items, out = soup.select("div.item"), {}
     for it in items:
@@ -23,7 +28,10 @@ def card_links(html: str) -> tuple[int, dict[str, str]]:
         a = it.find("a", href=re.compile(r"obiava-"))
         if a and TYPE in text.upper():
             href = a["href"].split("?")[0]
-            out[("https:" + href) if href.startswith("//") else href] = text
+            kw = parse.power_kw(text, "")
+            project = (" проект" if re.search(r"проект(?!ант)", text, re.I) and not PERMIT.search(text)
+                       and not RUNNING.search(text) else "")  # «проектна мощност» of a running plant is no project
+            out[("https:" + href) if href.startswith("//") else href] = f"Соларен парк{f' {kw:.0f} kW' if kw else ''}{project}"
     return len(items), out
 
 
