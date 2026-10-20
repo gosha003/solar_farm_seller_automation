@@ -93,11 +93,12 @@ def gate(api, sid, queue: list, stations: dict) -> None:
 def cancel_followups(api, sid, by_id: dict, dialogs: list[dict]) -> dict:
     """A follow-up drafted before the seller answered never goes out: the draft and its «Ручная очередь» row are cancelled.
     Returns the cancelled drafts that are sheet rows."""
-    answered = followup.replied(dialogs)
+    answered = followup.last_reply(dialogs)  # an answer the follow-up was drafted after doesn't cancel it
     stale = {d["id"]: d for d in by_id.values() if d["тип"].startswith("дожим") and d["id станции"] in answered
+             and answered[d["id станции"]] >= d.get("дата", "")
              and (d["статус"] in WAITING or d["статус"] == "одобрено" and d.get("отправлено", "") in UNSENT)}
     for d in stale.values():
-        d["статус"] = "отменено: продавец ответил"
+        d["статус"] = followup.CANCELLED
     if stale:
         texts = {(d["id станции"], d["текст"]) for d in stale.values()}
         rows = [r for r in sheets.read(api, sid, "Ручная очередь") if r["статус"] == "отправить вручную"

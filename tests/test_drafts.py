@@ -13,7 +13,8 @@ PERMIT = {**ROW, "заголовок": "Продавам 2 MW ФЕЦ с разр
 def test_every_rendered_letter_passes_section4_rules(lang, row):
     sig = drafts.template(lang)["signature"]
     subject, body = drafts.first(row, lang)
-    for text in (subject + "\n" + body, drafts.second(row, lang), drafts.followup(lang, "08.10.2026")):
+    for text in (subject + "\n" + body, drafts.second(row, lang), drafts.followup(lang, "08.10.2026"),
+                 drafts.followup(lang, "08.10.2026", reply=True)):
         assert rules.violations(text, sig) == [], (lang, text)
         assert "(" not in text, (lang, text)          # owner: no parenthetical clarifications in letters
 

@@ -83,3 +83,8 @@ followup:
     Здравейте,
 
     Връщам се по повод запитването ми от {date}. Разполагате ли с подходящи централи или терени?
+  # the seller answered, then went quiet after our letter with the remaining questions; {date} = that letter
+  body_reply: |-
+    Здравейте,
+
+    Връщам се по повод съобщението ми от {date} с няколко допълнителни въпроса. Ще се радвам на отговор, когато Ви е удобно, дори и само на част от тях.

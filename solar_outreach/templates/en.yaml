@@ -80,3 +80,7 @@ followup:
     Hello,
 
     I am following up on my inquiry of {date}. Do you have any suitable plants or land plots?
+  body_reply: |-
+    Hello,
+
+    I am following up on my message of {date} with a few additional questions. I would be glad to hear from you whenever convenient, even if only on some of them.
