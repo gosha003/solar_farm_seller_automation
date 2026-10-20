@@ -21,9 +21,14 @@ It has run unattended on a free-tier Google Cloud VM since October 2026.
   CAPTCHAs, and it never reveals phone numbers hidden behind JavaScript.
 - **Safe by default.** Nothing reaches a seller unless `DRY_RUN=false` is set explicitly. The Gmail
   client can only touch threads carrying its own label, and it has no delete calls.
-- **Costs about $0 a month.** It runs on an e2-micro VM with a budget alert on Pub/Sub; at 100% of
-  the budget the VM shuts itself down. Long polling makes the bot answer in seconds without webhooks.
-- **Tested.** Over 130 pytest tests cover parsers, rules, scheduling, Gmail/Sheets fakes and robots.txt.
+- **Exactly once.** Each letter is saved to the sheet the moment Gmail accepts it, so an error later in the pass,
+  a deploy or an OOM kill never sends it twice. A reply is marked as processed only after its results are in the
+  sheet, so an LLM or Telegram outage delays it but never loses it.
+- **Hosting costs about $0 a month.** It runs on an e2-micro VM with a budget alert on Pub/Sub; at 100% of
+  the budget the VM shuts itself down. Claude API usage, mostly the daily web search, is a few dollars a month.
+  Long polling makes the bot answer in seconds without webhooks.
+- **Tested.** About 300 pytest tests cover parsers, rules, scheduling and robots.txt, plus whole inbox and
+  sending passes on an in-memory sheet with Gmail, Telegram and LLM fakes, including failures in the middle of a pass.
   An optional paid live evaluation of the classifier runs behind `LIVE_LLM=1`.
 
 ## How it works
@@ -53,7 +58,9 @@ flowchart LR
 1. **Search** ([search.py](solar_outreach/search.py), [sources/](solar_outreach/sources)): each site module
    returns listings, [parse.py](solar_outreach/parse.py) extracts power, price, year, regime and contacts,
    and [qualify.py](solar_outreach/qualify.py) scores them against [config.yaml](solar_outreach/config.yaml).
-   Rows are deduplicated by link, phone and email (combined with power) and by title + power + region.
+   Rows are deduplicated by link (alo.bg by ad number), phone and email (combined with power), power + total price,
+   and title + power + region. Every run records per source how many links it saw and what failed; the morning
+   digest flags a source that errors, returns 0 links or has stopped running.
    Portals the crawler can't read (JavaScript-only results, form-only search, cloud-IP 403) are covered by a daily routine
    in which a Claude agent browses them in the owner's Chrome and hands the listings to `search --import`, so they get
    the same parser, criteria and dedup. The agent follows the same robots.txt rules as the crawler (sites that opt out
@@ -77,9 +84,14 @@ not left to the prompt:
 - Letters never make offers, state a budget or prices, agree to meetings, calls, NDAs or deposits,
   or share company details.
 - Letters may state only the buyer facts listed in the config. The LLM may not invent anything else.
-- "Are you a bot?" or "who are you?" pauses the dialog and escalates to the owner. The system never claims to be human.
-- A refusal or "already sold" moves the contact to a do-not-contact tab. A bounce rate above 10% switches
-  sending back to manual.
+- "Are you a bot?" or "who are you?" pauses the dialog and escalates to the owner, even when the model misses the
+  question. The system never claims to be human, and outgoing text that does is flagged.
+- A paused dialog (escalation, refusal, skipped by the owner) stays paused when the seller writes again: the message
+  is recorded and shown to the owner, and nothing is answered.
+- A refusal or "already sold" moves the contact to a do-not-contact tab. It and the blacklist apply to every
+  channel (email, WhatsApp, alo.bg) and to other listings of the same seller. A bounce rate above 10% switches
+  sending back to manual and returns already approved letters to the owner.
+- A follow-up drafted before the seller answered is cancelled, on every channel.
 - Attachments are stored in Drive (PDF, images and DOCX only) and are never opened. Links in emails are never followed.
 
 ## Tech stack
@@ -105,11 +117,15 @@ solar_outreach/
   approval.py        Telegram approval loop, limits, sending, digest
   inbox.py           reply classification, fact extraction, escalations
   followup.py        follow-ups on day 4 and 9
-  owner.py           owner commands (/stats, /pause, /auto, /queue, ...)
+  owner.py           owner commands (/stats, /pause, /auto, /queue, ...), digest
+  site_queue.py      CLI for the routine that sends «Ручная очередь» messages on alo.bg and WhatsApp
+  alo_reply.py       CLI for the routine that reads seller replies in the alo.bg account
   gmail_client.py    Gmail restricted to the SolarBG label
+  contacts.py        contact channel (email > phone > website)
   sheets.py / drive.py / notify.py / budget.py
+  google_auth.py / set_secrets.py   one-time OAuth and key setup
   engine.py          main loop / daemon
-deploy/              VM setup, deploy script, systemd units and timers
+deploy/              VM setup, deploy script, systemd units and timers, status.sh
 tests/               pytest suite
 ```
 
@@ -135,17 +151,28 @@ python -m solar_outreach.engine                # one pass: inbox, Telegram, draf
 python -m solar_outreach.engine --daemon       # run forever
 ```
 
+On the owner's PC (sites that block cloud IPs, and the Claude-in-Chrome routines):
+
+```bash
+python -m solar_outreach.search --only pc      # imot.bg + olx.bg
+python -m solar_outreach.search --import found.json   # listings the browser routine collected
+python -m solar_outreach.alo_reply pending     # alo.bg replies to read in the account
+python -m solar_outreach.site_queue pending    # alo.bg / WhatsApp messages to send
+```
+
 The operator interface (Telegram bot, sheet tabs and columns, owner summaries) is in Russian because the operator
 speaks Russian. Seller-facing letters are in Bulgarian, English or Russian, chosen per conversation.
 
 ## Deployment
 
 `deploy/deploy.sh` packs the committed code with `config.local.yaml` and `.env`, copies them to the VM and runs
-`deploy/setup.sh`. That script sets up the venv, 2 GB of swap and the systemd units:
+`deploy/setup.sh` (`deploy.sh --code` leaves the VM's `.env` alone; `deploy/status.sh` shows the bot, the timers
+and memory). setup.sh sets up the venv, 2 GB of swap and the systemd units:
 
-- `solar-bot`: the engine daemon (memory-capped, restarted on failure, alert after 3 failures in a row)
+- `solar-bot`: the engine daemon (memory-capped, restarted on failure, alert after 3 failures in a row; a restart
+  waits for the current pass to finish)
 - `solar-search-sites.timer` (3× a day), `solar-search-web.timer` (daily, with Claude web search),
-  `solar-search-regions.timer` and `solar-search-brokers.timer` (weekly)
+  `solar-search-regions.timer` and `solar-search-brokers.timer` (weekly); search runs never overlap
 
 Budget safety: a monthly GCP budget publishes to Pub/Sub. [budget.py](solar_outreach/budget.py) reads it, and at
 100% it alerts the owner and powers the VM off.
