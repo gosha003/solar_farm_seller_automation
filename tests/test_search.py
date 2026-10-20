@@ -56,3 +56,24 @@ def test_ids_continue_after_max_existing():
     new = [{"id": ""}, {"id": ""}]
     search.number(new, [{"id": "S001"}, {"id": "S021"}, {"id": "S003"}])
     assert [r["id"] for r in new] == ["S022", "S023"]
+
+
+def test_import_keeps_pv_sales_and_criteria_still_apply(tmp_path):
+    import json
+    f = tmp_path / "found.json"
+    f.write_text(json.dumps([
+        {"source": "imoti.net", "url": "https://a/1", "title": "Бизнес имот", "text": "Работеща фотоволтаична централа 1,5 MW, 1 100 000 EUR"},
+        {"source": "imoti.net", "url": "https://a/2", "title": "Монтаж на фотоволтаици", "text": "ФЕЦ 1 MW"},
+        {"source": "imoti.net", "url": "https://a/3", "title": "Парцел за ФЕЦ", "text": "проект 2 MW"},
+        {"source": "imoti.net", "url": "https://a/4", "title": "Парцел за ФЕЦ", "text": "2 MW, разрешение за строеж"},
+        {"source": "imoti.net", "url": "https://a/5", "title": "Апартамент", "text": "тристаен"},
+        {"source": "homes.bg", "url": "https://a/6", "title": "ФЕЦ 400 kW", "text": "работеща"},
+        {"source": "homes.bg", "url": "https://a/known", "title": "ФЕЦ 2 MW", "text": ""},
+        {"url": "javascript:alert(1)", "title": "ФЕЦ 2 MW"},
+    ], ensure_ascii=False), encoding="utf-8")
+    out = list(search.imported(str(f), {"https://a/known"}))
+    assert [l.url for l in out] == ["https://a/1", "https://a/4", "https://a/6"]
+    assert out[0].source == "браузер: imoti.net"
+    rows = [search.to_row(l, CFG) for l in out]
+    assert rows[0]["отбор"] == "кандидат" and rows[0]["приоритет"] != "-"   # 1.5 MW, ~733 €/kW
+    assert rows[2]["отбор"] == "мелкая" and rows[2]["приоритет"] == "-"     # 400 kW: same criteria as every source
