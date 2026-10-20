@@ -19,7 +19,8 @@ __pycache__/
 
 # working files
 downloads/
-found*.json      # listings the browser routine collected: contain seller contacts
+# listings the browser routine collected: contain seller contacts
+found*.json
 *.log
 .idea/
 solar.tgz

@@ -51,6 +51,23 @@ def test_rows_dedup_by_contact_and_title_but_not_empty_title():
     assert not search.keys(c) & search.keys(d)      # empty titles don't merge
 
 
+def test_alo_ad_dedup_by_number_not_url_form():
+    a = search.to_row(Listing("alo.bg", "https://www.alo.bg/prodavame-fec-9mw-11333221", "Продаваме ФЕЦ 9MW"), CFG)
+    b = search.to_row(Listing("x", "https://www.alo.bg/11333221", "Друго заглавие"), CFG)
+    c = search.to_row(Listing("x", "https://www.alo.bg/11333222", "Трето заглавие"), CFG)
+    assert search.keys(a) & search.keys(b) and not search.keys(b) & search.keys(c)
+    assert search.url_key("https://bazar.bg/obiava-11333221/fec") == "https://bazar.bg/obiava-11333221/fec"
+
+
+def test_titles_dedup_across_scripts():
+    a = search.to_row(Listing("x", "u1", "Продаваме ФЕЦ 9MW"), CFG)   # Latin M
+    b = search.to_row(Listing("x", "u2", "Продаваме ФЕЦ 9МW"), CFG)   # Cyrillic М
+    assert a["мощность кВт"] == b["мощность кВт"] == 9000
+    assert search.keys(a) & search.keys(b)
+    from_sheet = {**a, "ссылка": "u3", "мощность кВт": "9000"}  # sheets.read returns formatted strings
+    assert search.keys(from_sheet) & search.keys(b)
+
+
 def test_ids_continue_after_max_existing():
     from solar_outreach import search
     new = [{"id": ""}, {"id": ""}]

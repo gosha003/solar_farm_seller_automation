@@ -28,6 +28,7 @@ from solar_outreach.sources import (NOT_OPERATING, PERMIT, PV, SERVICES, UNAVAIL
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
 PC_SOURCES = {"imot.bg": imot, "olx.bg": olx}  # they return 403 to the VM: run only from the owner's PC (--only pc = both)
 ORDER = {"A": 0, "B": 1, "C": 2, "-": 3}
+LOOKALIKE = str.maketrans("асеорхукмтвн", "aceopxykmtbh")  # «9МW» and «9MW» are the same title (lowercased Cyrillic -> Latin)
 
 
 def to_row(l, cfg) -> dict:
@@ -58,12 +59,23 @@ def broker_row(l) -> dict:
             "примечание": "брокер, найден поиском (не по объявлению)"}
 
 
+def url_key(url: str) -> str:
+    """alo.bg serves one ad under several URLs («/prodavame-fec-9mw-11333221», «/11333221», and realestates.bg links to the
+    same numbers): compare them by the ad number."""
+    m = re.match(r"https?://(?:www\.)?alo\.bg/(?:[^/?#]*-)?(\d{6,})(?:[/?#]|$)", url)
+    return f"alo.bg/{m.group(1)}" if m else url
+
+
 def keys(r: dict) -> set:
     """Dedup keys: link, phone, email, title+power+region.
     ponytail: phone/email are compared together with power, otherwise all of an agency's stations would collapse into one."""
     kw = str(r.get("мощность кВт", ""))
-    title = re.sub(r"\W+", " ", r["заголовок"].lower()).strip()
-    out = {("url", r["ссылка"])}
+    try:  # a fresh row has 1500.0, the same row read back from the sheet has «1500»
+        kw = f"{float(kw.replace(' ', '').replace(',', '.')):g}"
+    except ValueError:
+        pass
+    title = re.sub(r"\W+", " ", r["заголовок"].lower().translate(LOOKALIKE)).strip()
+    out = {("url", url_key(r["ссылка"]))}
     if title:
         out.add(("title", title, kw, r["регион"]))
     out |= {("contact", c.strip(), kw) for c in f"{r['телефон']},{r['email']}".split(",") if c.strip()}
@@ -74,7 +86,7 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
     """Open a listing page only if it isn't in the sheet yet and the title's power isn't clearly out of range.
     Clearly out of range (too small/too large) is recorded from the title alone: fewer requests, no blocks from the sites."""
     for url, title in src.links(fetch).items():
-        if url in known_urls or not is_station_sale(title):
+        if url_key(url) in known_urls or not is_station_sale(title):
             continue
         kw = parse.power_kw(title, "")
         if kw is not None and not crit["min_kwp"] <= kw <= crit["max_kwp"]:
@@ -98,7 +110,7 @@ def imported(path: str, known_urls: set):
         items = json.load(f)
     for d in items:
         url, title, text = str(d.get("url", "")), str(d.get("title", "")), str(d.get("text", ""))[:6000]
-        if (not url.startswith("http") or url in known_urls or SERVICES.search(title)
+        if (not url.startswith("http") or url_key(url) in known_urls or SERVICES.search(title)
                 or not PV.search(f"{title} {text}") or (NOT_OPERATING.search(title) and not PERMIT.search(f"{title} {text}"))):
             continue
         yield Listing(f"браузер: {d.get('source') or url.split('/')[2]}", url, title, text, str(d.get("price", "")),
@@ -108,7 +120,7 @@ def imported(path: str, known_urls: set):
 def find_brokers(fetch, seen: set) -> list[dict]:
     out = []
     for url, name in brokers.links(fetch).items():
-        if ("url", url) in seen or not (html := fetch(url)):
+        if ("url", url_key(url)) in seen or not (html := fetch(url)):
             continue
         row = broker_row(brokers.parse_ad(url, html, name, fetch))
         if not keys(row) & seen:

@@ -1,9 +1,13 @@
 """Extract facts from a listing. Ambiguous = None («неизвестно»): no guessing."""
 import re
 
-NUM = r"(\d{1,3}(?:[ ., ]\d{3})+(?!\d)|\d+(?:[.,]\d+)?)"  # «1 160 000», «220,000», «1.5», «1,5»
-# colloquial «кв» = kW («ФЕЦ 30кв»), but «кв.м»/«кв. м» = area.
-POWER = re.compile(NUM + r"\s*(mwp|mw|мвт|мегават\w*|kwp|kw|квт|кв(?!\.?\s*м)|kвт|кw)(?![a-zа-я])", re.I)
+NUM = r"(\d{1,3}(?:[ ., ]\d{3})+(?:[.,]\d{1,2}(?!\d))?(?!\d)|\d+(?:[.,]\d+)?)"  # «1 160 000», «220,000», «1.5», «1,5», «1 496,88»
+# Units in either script, mixed too: sellers write «9МW», «250кW», «1,5 MВт» with Cyrillic/Latin lookalikes; «кВтп» = kWp.
+# Colloquial «кв» = kW («ФЕЦ 30кв», «500кВ»), but «кв.м»/«кв. м» = area and a grid voltage («20 кВ», «0,4 кВ») is not power.
+# Energy is not power: «kWh», «кВт.ч», «кВт/ч», «MW/h», «киловатчаса», «мегавата часа».
+UNIT = r"([mм](?:w|вт)[pрп]?|(?:мегават|киловат)(?!\w*час)\w*|[kк](?:w|вт)[pрп]?|кв(?!\.?\s*м))"
+POWER = re.compile(NUM + r"\s*-?\s*" + UNIT + r"(?![a-zа-я])(?!\s*[-/.]?\s*(?:ч|час\w*|h)(?![a-zа-я]))", re.I)
+VOLTS = {0.4, 6, 10, 20, 35, 110}  # kV of Bulgarian distribution lines
 MONEY = re.compile(NUM + r"\s*(€|eur\w*|евро|лв\.?|лева|bgn)|(€|eur)\s*" + NUM, re.I)
 YEAR = re.compile(r"(?:експлоатация|изградена|построена|пусната|въведена|от|година|г\.?)\D{0,25}?\b(20[01]\d|202[0-6])\b"
                   r"|\b(20[01]\d|202[0-6])\s*(?:г\.|год)", re.I)
@@ -19,8 +23,8 @@ SPV = re.compile(r"\bSPV\b|фирм|дружество|\bЕ?ООД\b|\bАД\b|д
 
 def num(s: str) -> float:
     s = s.replace(" ", " ")
-    if re.fullmatch(r"\d{1,3}(?:[ .,]\d{3})+", s):
-        return float(re.sub(r"[ .,]", "", s))
+    if m := re.fullmatch(r"(\d{1,3}(?:[ .,]\d{3})+)(?:[.,](\d{1,2}))?", s):  # thousands groups, maybe a decimal tail
+        return float(re.sub(r"\D", "", m.group(1)) + "." + (m.group(2) or "0"))
     return float(s.replace(",", "."))
 
 
@@ -30,8 +34,14 @@ def powers_kw(text: str) -> list[float]:
         before = text[max(0, m.start() - 2):m.start()]
         if re.search(r"\d\s*[xх×]\s*$", before):  # «15x100kw», «1х700kw»: a breakdown, not the station's power
             continue
-        value, unit = num(m.group(1)), m.group(2).lower()
-        out.append(value * 1000 if unit.startswith(("m", "м")) else value)
+        raw, unit = m.group(1), m.group(2).lower()
+        if unit == "кв" and num(raw) in VOLTS:
+            continue
+        if unit.startswith(("m", "м")):
+            # «1,498 MWp» is 1.498 MW (a 1498 MW plant doesn't exist here), not a thousands group
+            out.append(1000 * (float(raw.replace(",", ".")) if re.fullmatch(r"\d{1,2}[.,]\d{3}", raw) else num(raw)))
+        else:
+            out.append(num(raw))
     return out
 
 
