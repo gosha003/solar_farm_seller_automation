@@ -7,7 +7,9 @@
                                                      # (or --only imot.bg / --only olx.bg separately)
     python -m solar_outreach.search --regions  # web search per province: Montana, Vidin, Dobrich, Shumen, Yambol, Haskovo, Kardzhali (paid)
     python -m solar_outreach.search --brokers  # broker search only (paid, weekly), rows `broker:<site>`
+    python -m solar_outreach.search --import found.json  # listings the PC routine collected in the owner's browser
 """
+import json
 import os
 import re
 import sys
@@ -20,7 +22,8 @@ from solar_outreach import parse, sheets
 from solar_outreach.config import load_config, single_run
 from solar_outreach.contacts import channel
 from solar_outreach.qualify import qualify
-from solar_outreach.sources import UNAVAILABLE, Fetcher, Listing, alo, bazar, brokers, imot, is_station_sale, kpd, olx, web
+from solar_outreach.sources import (NOT_OPERATING, PERMIT, PV, SERVICES, UNAVAILABLE, Fetcher, Listing, alo, bazar, brokers,
+                                    imot, is_station_sale, kpd, olx, web)
 
 SOURCES = {"bazar.bg": bazar, "alo.bg": alo, "kpd.bg": kpd}
 PC_SOURCES = {"imot.bg": imot, "olx.bg": olx}  # they return 403 to the VM: run only from the owner's PC (--only pc = both)
@@ -87,6 +90,21 @@ def listings(name, src, fetch, known_urls: set, crit: dict):
             yield src.parse_ad(url, html)
 
 
+def imported(path: str, known_urls: set):
+    """Listings the browser routine saved as a JSON list of {source, url, title, text, price, location, seller}.
+    Page text is untrusted data: it only goes through the same parser and the same criteria as every other source.
+    Site titles are often generic («Бизнес имот»), so the PV keyword may be in the text; service/project titles are still dropped."""
+    with open(path, encoding="utf-8") as f:
+        items = json.load(f)
+    for d in items:
+        url, title, text = str(d.get("url", "")), str(d.get("title", "")), str(d.get("text", ""))[:6000]
+        if (not url.startswith("http") or url in known_urls or SERVICES.search(title)
+                or not PV.search(f"{title} {text}") or (NOT_OPERATING.search(title) and not PERMIT.search(f"{title} {text}"))):
+            continue
+        yield Listing(f"браузер: {d.get('source') or url.split('/')[2]}", url, title, text, str(d.get("price", "")),
+                      str(d.get("location", "")), str(d.get("seller", "")))
+
+
 def find_brokers(fetch, seen: set) -> list[dict]:
     out = []
     for url, name in brokers.links(fetch).items():
@@ -99,7 +117,8 @@ def find_brokers(fetch, seen: set) -> list[dict]:
     return out
 
 
-def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: bool = False, regions: bool = False) -> None:
+def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: bool = False, regions: bool = False,
+         import_path: str = "") -> None:
     cfg = load_config()
     s = cfg["scraping"]
     fetch = Fetcher(s["user_agent"], tuple(s["delay_sec"]), s.get("host_delay_sec"))
@@ -115,7 +134,7 @@ def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: b
 
     new, failed = [], dict(UNAVAILABLE)
     by_region = SimpleNamespace(links=web.regional_links, parse_ad=web.parse_ad)
-    active = ({} if find_brokers_too else {"web": by_region} if regions else
+    active = ({"браузер": None} if import_path else {} if find_brokers_too else {"web": by_region} if regions else
               {k: v for k, v in PC_SOURCES.items() if only in (k, "pc")} if only else
               {**SOURCES, **({"web": web} if use_web else {})})
     if find_brokers_too:  # separate weekly run: brokers only
@@ -126,7 +145,8 @@ def main(local: bool, use_web: bool = False, only: str = "", find_brokers_too: b
         print(f"brokers: готово, всего новых {len(new)}", flush=True)
     for name, src in active.items():
         try:
-            for l in listings(name, src, fetch, {k[1] for k in seen if k[0] == "url"}, cfg["criteria"]):
+            known = {k[1] for k in seen if k[0] == "url"}
+            for l in imported(import_path, known) if src is None else listings(name, src, fetch, known, cfg["criteria"]):
                 row = to_row(l, cfg)
                 if l.extra.get("title_only"):
                     row["примечание"] = "; ".join(filter(None, [row["примечание"], "только заголовок"]))
@@ -179,4 +199,4 @@ def settings(cfg: dict) -> list[list]:
 
 if __name__ == "__main__":
     main("--local" in sys.argv, "--web" in sys.argv, sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else "",
-         "--brokers" in sys.argv, "--regions" in sys.argv)
+         "--brokers" in sys.argv, "--regions" in sys.argv, sys.argv[sys.argv.index("--import") + 1] if "--import" in sys.argv else "")

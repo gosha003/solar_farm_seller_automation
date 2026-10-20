@@ -33,6 +33,7 @@ flowchart LR
     subgraph Search["Search (systemd timers)"]
         S1[bazar.bg / alo.bg / kpd.bg] --> P[parse + qualify]
         S2[imot.bg / olx.bg<br/>from owner's PC] --> P
+        S4[13 more portals<br/>agent in owner's browser] --> P
         S3[Claude web search<br/>listings, brokers] --> P
     end
     P -->|dedup, score| Sheet[(Google Sheet)]
@@ -53,6 +54,9 @@ flowchart LR
    returns listings, [parse.py](solar_outreach/parse.py) extracts power, price, year, regime and contacts,
    and [qualify.py](solar_outreach/qualify.py) scores them against [config.yaml](solar_outreach/config.yaml).
    Rows are deduplicated by link, phone and email (combined with power) and by title + power + region.
+   Portals the crawler can't or may not read (robots.txt, JavaScript, cloud-IP 403) are covered by a daily routine
+   in which a Claude agent browses them in the owner's Chrome and hands the listings to `search --import`, so they get
+   the same parser, criteria and dedup. The agent never logs in, solves CAPTCHAs or reveals hidden phone numbers.
 2. **Drafts** ([drafts.py](solar_outreach/drafts.py)) are built from templates and sheet facts, without an
    LLM, so they contain no invented facts and cost nothing. The LLM only rewrites a draft when the owner asks for an edit.
 3. **Approval** ([approval.py](solar_outreach/approval.py), [notify.py](solar_outreach/notify.py)): the owner
