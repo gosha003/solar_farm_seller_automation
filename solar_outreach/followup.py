@@ -49,8 +49,10 @@ def due(stations: dict, by_id: dict, dialogs: list[dict], days: list[int], today
         if st["статус переписки"] != "ждём ответа":
             continue
         mine = [d for d in by_id.values() if d["id станции"] == sid]
-        if sid in answered:  # chase our reply to the seller's latest message, never a letter he has answered since
-            letters = [d for d in mine if d["тип"] == "ответ" and sent_on(d) and sent_on(d).isoformat() >= answered[sid]]
+        if sid in answered:  # chase our reply to the seller's latest message, never a letter he has answered since;
+            # a reply the owner skipped is not ours even with a date: he wrote his own, the questions may not be in it
+            letters = [d for d in mine if d["тип"] == "ответ" and d["статус"] == "отправлено" and sent_on(d)
+                       and sent_on(d).isoformat() >= answered[sid]]
         else:
             letters = [d for d in mine if d["тип"].startswith("первое") and "ТЕСТ" not in d["тип"] and sent_on(d)]
         if not letters:
