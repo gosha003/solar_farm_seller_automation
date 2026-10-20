@@ -73,7 +73,8 @@ def status(c: Ctx, station_id: str) -> str:
     return (f"{st['id']} · {st['заголовок'][:90]}\n{st['мощность кВт']} кВт · {st['цена EUR']} EUR · "
             f"{st['EUR/кВт']} €/кВт · {st['регион']} · приоритет {st['приоритет']}\n"
             f"Статус: {st['статус переписки']} · последний контакт {st['последний контакт'] or '-'} · "
-            f"далее: {st['следующий шаг'] or '-'}\nКанал: {st['канал']} · {st['ссылка']}\n\n{items}"
+            f"далее: {st['следующий шаг'] or '-'}\nКанал: {st['канал']} · {st['ссылка']}"
+            + (f"\n⚑ {st['примечание']}" if st.get("примечание") else "") + f"\n\n{items}"
             + ("\n\nПоследнее:\n" + "\n".join(f"{r['дата']} {r['направление']}: {r['краткое содержание'][:200]}"
                                               for r in talk) if talk else ""))
 
@@ -111,8 +112,7 @@ def digest(c: Ctx, today: date) -> str:
     bounce = sum(int(v or 0) for k, v in c.state.items() if k.startswith("bounce ") and k[7:] >= since)
     if bounce:
         lines.append(f"Bounce за сутки: {bounce}")
-    if c.state.get("площадки недоступны"):
-        lines.append(f"Недоступные площадки: {c.state['площадки недоступны']}")
+    lines += stuck(c, today) + [f"⚠️ Поиск {x}" for x in search_health(c.state, local_now(c.cfg).replace(tzinfo=None))]
     if c.state.get("расходы Google Cloud"):
         lines.append(f"Google Cloud: {c.state['расходы Google Cloud']}")
     trial = c.cfg.get("gcp", {}).get("trial_ends")
@@ -122,6 +122,57 @@ def digest(c: Ctx, today: date) -> str:
     if c.state.get("последняя ошибка") and c.state["последняя ошибка"][:10] >= since:
         lines.append(f"Последняя ошибка: {c.state['последняя ошибка']}")
     return "\n".join(lines)
+
+
+LISTING_SITES = ("bazar.bg", "alo.bg", "kpd.bg", "imot.bg", "olx.bg")  # 0 links there = the site changed its markup
+STALE_DAYS = {"брокеры": 8, "регионы": 8}  # weekly runs; every other search runs at least daily
+
+
+def search_health(state: dict, now: datetime) -> list[str]:
+    """Problems from the «поиск <источник>» keys every search run writes: an error, 0 links on a listing site,
+    or a source that hasn't run for days (a dead timer, the PC routine not running, a failed browser import)."""
+    out = []
+    for k, v in sorted(state.items()):
+        if not k.startswith("поиск ") or not v:
+            continue
+        name = k.removeprefix("поиск ")
+        try:
+            age = (now - datetime.strptime(v[:16], "%Y-%m-%d %H:%M")).days
+        except ValueError:
+            continue
+        if "ошибка" in v:
+            out.append(f"{name}: {v[17:]}")
+        elif name in LISTING_SITES and "ссылок 0," in v:
+            out.append(f"{name}: 0 ссылок, похоже, сайт поменял вёрстку")
+        if age >= STALE_DAYS.get(name, 2):
+            out.append(f"{name}: не запускался {age} дн.")
+    return out
+
+
+def stuck(c: Ctx, today: date) -> list[str]:
+    """What waits on someone and for how long: an unread alo.bg reply is the warmest lead and nothing else reminds of it."""
+    last_in: dict[str, str] = {}
+    for r in c.dialogs:
+        if r["направление"] == "in" and r["дата"] > last_in.get(r["id станции"], ""):
+            last_in[r["id станции"]] = r["дата"]
+
+    def age(day: str) -> int:
+        try:
+            return (today - date.fromisoformat(day)).days
+        except ValueError:
+            return 0
+    alo = [f"{s['id']} ({age(last_in.get(s['id'], ''))} дн.)" for s in c.stations.values()
+           if s["статус переписки"] == "ответ на alo" and age(last_in.get(s["id"], "")) >= 1]
+    escal = [f"{s['id']} ({age(last_in.get(s['id'], ''))} дн.)" for s in c.stations.values()
+             if s["статус переписки"] == "эскалация" and age(last_in.get(s["id"], "")) >= 2]
+    old = [f"{d['id']} ({age(d.get('дата', ''))} дн.)" for d in c.by_id.values()
+           if d["статус"] in ("на одобрении", "ждёт правки") and age(d.get("дата", "")) >= 2]
+    sending = [d["id"] for d in c.by_id.values() if d["статус"] == "отправляется"]  # the bot died between claim and send
+    return ([f"⏳ Не прочитан ответ на alo.bg: {', '.join(alo)}"] if alo else []) + \
+           ([f"⏳ Эскалации ждут тебя: {', '.join(escal)}"] if escal else []) + \
+           ([f"⏳ Черновики без решения: {', '.join(old)}"] if old else []) + \
+           ([f"⚠️ Письма зависли в «отправляется»: {', '.join(sending)}. Проверь «Отправленные» в Gmail: ушло — поставь "
+             "«отправлено», нет — «одобрено»."] if sending else [])
 
 
 def local_now(cfg: dict) -> datetime:
@@ -134,16 +185,40 @@ def digest_due(c: Ctx, now: datetime | None = None) -> bool:
     return now.hour >= c.cfg["notify"]["digest_hour"] and c.state.get("дайджест") != now.date().isoformat()
 
 
-def sent(c: Ctx, station_id: str, today: date) -> str:
-    """The owner sent an approved message personally: draft sent, station awaits a reply, queue row closed."""
+def sent(c: Ctx, station_id: str, today: date, text: str = "") -> str:
+    """The owner sent an approved message personally: draft sent, station awaits a reply, queue rows closed.
+    text (site_queue sent, the routine): exactly that message went out. Its draft and row are closed, the station's
+    older unsent messages are superseded by it, and a paused dialog stays paused."""
     st = c.stations.get(station_id.upper())
     if not st:
         return f"Нет станции {station_id}"
     t = today.isoformat()
-    ds = [d for d in c.by_id.values() if d["id станции"] == st["id"] and d["статус"] == "одобрено"
-          and "ТЕСТ" not in d["тип"] and d.get("отправлено", "") in ("", "вручную", "DRY_RUN")]
-    if not ds:
+    unsent = [d for d in c.by_id.values() if d["id станции"] == st["id"] and d["статус"] == "одобрено"
+              and "ТЕСТ" not in d["тип"] and d.get("отправлено", "") in ("", "вручную", "DRY_RUN")]
+    rows = [r for r in sheets.read(c.api, c.sid, "Ручная очередь")
+            if r["id станции"] == st["id"] and r["статус"] == "отправить вручную"]
+    if text:
+        # its draft; the text edited in the sheet: the newest unsent alo/WhatsApp draft, the one the newest row belongs to
+        ds = ([d for d in unsent if d["текст"] and d["текст"] in text]
+              or [d for d in unsent if d["канал"] != "email"][-1:])
+        last_row = max([r["_row"] for r in rows if r["текст"] == text], default=0)
+        last_draft = max([d.get("_row", 0) for d in ds], default=0)
+        newer = [d for d in unsent if d.get("_row", 0) > last_draft]  # their rows stay: they go out next
+        rows = [{**r, "статус": "отправлено вручную" if r["текст"] == text else "отменено: заменено новым"}
+                for r in rows if r["текст"] == text or r["_row"] < last_row
+                and not any(x["текст"] and x["текст"] in r["текст"] for x in newer)]
+        older = [d for d in unsent if d not in ds and d.get("_row", 0) < last_draft]
+    else:
+        ds, older, rows = unsent, [], [{**r, "статус": "отправлено вручную"} for r in rows]
+    if not ds and not rows:
         return f"У {st['id']} нет одобренных неотправленных сообщений. Сначала ✅ на карточке."
+    sheets.update(c.api, c.sid, "Ручная очередь", rows)  # first: if Sheets fails here, nothing is half-done
+    for d in older:
+        d["статус"] = "отменено: заменено новым"
+        c.changed_drafts[d["id"]] = d
+    if not ds:  # the row went out but no draft matches (its text was edited in the sheet)
+        c.new_dialogs.append({"id станции": st["id"], "направление": "out", "дата": t, "канал": f"{st['канал']} (вручную)",
+                              "язык": "", "краткое содержание": "сообщение из «Ручной очереди»", "тред Gmail": ""})
     for d in ds:
         d.update({"статус": "отправлено", "отправлено": t})
         c.changed_drafts[d["id"]] = d
@@ -151,11 +226,12 @@ def sent(c: Ctx, station_id: str, today: date) -> str:
                               "язык": d["язык"], "краткое содержание": f"{d['тип']}, отправил владелец", "тред Gmail": ""})
         if not d["тип"].startswith("дожим"):
             sheets.mark_asked(st, d["тип"].startswith("первое"))
-    st.update({"статус переписки": "ждём ответа", "последний контакт": t, "следующий шаг": "ждать ответа"})
-    rows = [r for r in sheets.read(c.api, c.sid, "Ручная очередь")
-            if r["id станции"] == st["id"] and r["статус"] == "отправить вручную"]
-    sheets.update(c.api, c.sid, "Ручная очередь", [{**r, "статус": "отправлено вручную"} for r in rows])
-    return f"📤 {st['id']}: отмечено отправленным ({', '.join(d['id'] for d in ds)}). Нет ответа: дожим через 4 и 9 дней."
+    if text and st["статус переписки"] in inbox.PAUSED:  # e.g. the seller wrote again while the routine was sending
+        st["последний контакт"] = t
+    else:
+        st.update({"статус переписки": "ждём ответа", "последний контакт": t, "следующий шаг": "ждать ответа"})
+    return (f"📤 {st['id']}: отмечено отправленным ({', '.join(d['id'] for d in ds) or 'строка очереди'}). "
+            "Нет ответа: дожим через 4 и 9 дней.")
 
 
 def note(c: Ctx, station_id: str, text: str, today: date) -> str:
@@ -168,13 +244,16 @@ def note(c: Ctx, station_id: str, text: str, today: date) -> str:
     try:
         cl = llm.classify(text, {k: v for k, v in st.items() if k != "_row"})
     except llm.LLMError as e:
-        return f"⚠️ Не смог разобрать ({e}). Пришли ещё раз."
+        return f"⚠️ {st['id']}: не смог разобрать ответ ({e}). Пришли ещё раз."
     category, t = inbox.decide(cl.category, cl.confidence, text), today.isoformat()
-    got = inbox.apply_facts(st, cl)
+    got = inbox.apply_facts(st, cl) if category != "suspicious" else []  # as in inbox: no facts from a manipulative text
     st["последний контакт"] = t
     c.new_dialogs.append({"id станции": st["id"], "направление": "in", "дата": t, "канал": "вручную",
                           "язык": cl.language, "краткое содержание": f"[{category}] {cl.summary_ru}", "тред Gmail": ""})
     head = f"{st['id']} · {category}\n{cl.summary_ru}" + (f"\nВ таблицу: {', '.join(got)}" if got else "")
+    status = st["статус переписки"]
+    if status in inbox.HOLD and category != "auto_reply" and (category not in inbox.CLOSE or status == "отказ"):
+        return f"⏸ {head}\nДиалог на паузе ({status}): ответ записал, черновик не делаю. Решение за тобой."
     if category in inbox.ESCALATE:
         st["статус переписки"], st["следующий шаг"] = "эскалация", f"решение владельца: {category}"
         return f"🚨 {head}\nЭто решаешь ты, черновик не делаю. Диалог на паузе."
@@ -192,7 +271,10 @@ def note(c: Ctx, station_id: str, text: str, today: date) -> str:
         st["статус переписки"] = "квалифицирована"
         return f"✅ {head}\nВсе пункты раздела 3 получены: станция квалифицирована."
     try:
-        d = inbox.manual_reply_draft(st, cl, f"D{len(c.by_id) + 1:03d}")
+        d = inbox.manual_reply_draft(st, cl, sheets.next_id(c.by_id))
+    except llm.LLMUnavailable as e:  # not recorded: alo_reply keeps «ответ на alo», the next run reads it again
+        c.new_dialogs.pop()
+        return f"⚠️ {st['id']}: не смог составить ответ ({e}). Пришли ещё раз."
     except llm.LLMError as e:
         return f"{head}\n⚠️ Черновик ответа не получился ({e})."
     c.by_id[d["id"]] = d

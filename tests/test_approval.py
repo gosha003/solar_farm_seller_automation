@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from solar_outreach import approval, llm
@@ -99,7 +101,7 @@ def test_auto_mode_approves_clean_drafts_only(tg):
     assert test["статус"] == manual["статус"] == "на одобрении"
 
 
-def test_limits_per_run_and_per_day_but_replies_unlimited(monkeypatch, tg):
+def test_limits_per_run_and_per_day_but_replies_unlimited(monkeypatch, tg, sheet):
     monkeypatch.setenv("DRY_RUN", "false")
     sent = []
     monkeypatch.setattr(approval.gmail, "service", lambda: None)
@@ -121,14 +123,20 @@ def test_limits_per_run_and_per_day_but_replies_unlimited(monkeypatch, tg):
 def test_bounce_stop_switches_to_manual(monkeypatch, tg):
     urgent = []
     monkeypatch.setattr(approval.notify, "urgent", urgent.append)
-    c = approval.owner.Ctx(None, None, {"approval_mode": "manual", "limits": {"bounce_rate_stop": 0.1}}, {}, {}, [],
-                           {"approval_mode": "auto"}, {"bounce 2026-10-08": "2"})
-    by_id = {str(i): {"отправлено": "2026-10-08"} for i in range(10)}
-    approval.bounce_stop(c, by_id, "2026-10-08")
+    held = {**approval.make_draft(EMAIL_ST, "D99", test=False), "статус": "одобрено"}   # auto mode approved it, not sent yet
+    c = approval.owner.Ctx(None, None, {"approval_mode": "manual", "limits": {"bounce_rate_stop": 0.1}},
+                           {"S001": dict(EMAIL_ST)}, {}, [], {"approval_mode": "auto"}, {"bounce 2026-10-08": "2"})
+    sent = {str(i): {"id": str(i), "id станции": "S001", "тип": "первое", "канал": "email", "статус": "отправлено",
+                     "отправлено": "2026-10-07"} for i in range(10)}          # yesterday's letters count too
+    approval.bounce_stop(c, {**sent, "D99": held}, date(2026, 10, 8))
     assert c.mode() == "manual" and "Автоотправка выключена" in urgent[0]
+    assert held["статус"] == "на одобрении" and c.changed_drafts == {"D99": held} and len(tg) == 1   # back to the owner
     c.settings["approval_mode"], c.state["bounce 2026-10-08"] = "auto", "1"
-    approval.bounce_stop(c, by_id, "2026-10-08")
+    approval.bounce_stop(c, sent, date(2026, 10, 8))
     assert c.mode() == "auto"                                           # exactly 10%: not above the threshold
+    whatsapp = {str(i): {**d, "канал": "телефон (ручная)"} for i, d in sent.items()}
+    approval.bounce_stop(c, whatsapp, date(2026, 10, 8))
+    assert c.mode() == "manual"                                         # messages that can't bounce don't dilute the rate
 
 
 def test_dry_run_email_goes_to_manual_queue_and_never_auto_sent(monkeypatch, tg):

@@ -21,6 +21,17 @@ class Session:
     def json(self):
         return self.data
 
+    def raise_for_status(self):
+        pass
+
+
+class Denied(Session):
+    def post(self, url, json, timeout):
+        return self
+
+    def raise_for_status(self):
+        raise RuntimeError("403 PERMISSION_DENIED")
+
 
 def test_poweroff_only_at_budget(monkeypatch):
     calls, alerts = [], []
@@ -34,3 +45,10 @@ def test_poweroff_only_at_budget(monkeypatch):
 
 def test_no_reports_no_action():
     assert budget.latest("sub", Session([])) is None
+
+
+def test_pubsub_error_is_not_silence():
+    """403/404 from Pub/Sub must raise (the daemon logs it to the digest), not look like "no new reports"."""
+    import pytest
+    with pytest.raises(RuntimeError):
+        budget.latest("sub", Denied([]))

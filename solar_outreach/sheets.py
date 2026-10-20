@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 from solar_outreach.config import update_env
 from solar_outreach.google_auth import credentials
 
+RETRIES = 3  # googleapiclient backoff on 429/5xx; ponytail: a retried append after a lost 5xx reply may duplicate a row
 ITEMS = ["1 действующая", "2 капацитет", "3 док: земля", "3 док: разрешение за строеж", "3 док: договор присъединяване",
          "4 цена", "5 год ввода", "6 выработка/выручка", "7 режим продажи", "8 панели", "8 инверторы",
          "9 земля собств/аренда", "10 актив/SPV, обременения"]
@@ -69,33 +70,36 @@ def create(api, title: str, settings: list[list]) -> str:
     """The spreadsheet with all tabs and headers. Its ID is saved to .env as SPREADSHEET_ID."""
     body = {"properties": {"title": title, "locale": "ru_RU"},
             "sheets": [{"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}} for t in TABS]}
-    created = api.create(body=body, fields="spreadsheetId,sheets.properties").execute()
+    created = api.create(body=body, fields="spreadsheetId,sheets.properties").execute(num_retries=RETRIES)
     sid = created["spreadsheetId"]
     stations = next(s["properties"]["sheetId"] for s in created["sheets"] if s["properties"]["title"] == "Станции")
-    api.batchUpdate(spreadsheetId=sid, body={"requests": format_requests(stations)}).execute()
+    api.batchUpdate(spreadsheetId=sid, body={"requests": format_requests(stations)}).execute(num_retries=RETRIES)
     data = [{"range": f"'{t}'!A1", "values": [h]} for t, h in TABS.items()]
     data.append({"range": "'Настройки'!A2", "values": settings})
-    api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "RAW", "data": data}).execute()
+    api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "RAW", "data": data}).execute(num_retries=RETRIES)
     update_env({"SPREADSHEET_ID": sid})
     os.environ["SPREADSHEET_ID"] = sid
     return sid
 
 
+@cache  # once per process: the daemon used to spend 2 of its 60 reads/min on it every pass
 def ensure_tabs(api, sid: str) -> None:
     """Tabs and columns added in later phases are appended to an existing spreadsheet.
     New columns are only added at the end, so existing rows don't shift."""
-    have = {s["properties"]["title"] for s in api.get(spreadsheetId=sid, fields="sheets.properties.title").execute()["sheets"]}
+    have = {s["properties"]["title"] for s in
+            api.get(spreadsheetId=sid, fields="sheets.properties.title").execute(num_retries=RETRIES)["sheets"]}
     missing = [t for t in TABS if t not in have]
     if missing:
         api.batchUpdate(spreadsheetId=sid, body={"requests": [
-            {"addSheet": {"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}}} for t in missing]}).execute()
+            {"addSheet": {"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}}} for t in missing]}).execute(
+            num_retries=RETRIES)
     api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "RAW", "data": [
-        {"range": f"'{t}'!A1", "values": [h]} for t, h in TABS.items()]}).execute()
+        {"range": f"'{t}'!A1", "values": [h]} for t, h in TABS.items()]}).execute(num_retries=RETRIES)
 
 
 def read(api, sid: str, tab: str) -> list[dict]:
     """Rows as dicts; `_row` = the row number in the sheet (for updates)."""
-    rows = api.values().get(spreadsheetId=sid, range=f"'{tab}'").execute().get("values", [])
+    rows = api.values().get(spreadsheetId=sid, range=f"'{tab}'").execute(num_retries=RETRIES).get("values", [])
     if not rows:
         return []
     head = rows[0]
@@ -105,9 +109,10 @@ def read(api, sid: str, tab: str) -> list[dict]:
 def cells(r: dict, head: list[str]) -> list:
     """A row for USER_ENTERED (it keeps dates and numbers typed). Phone-like strings ("+359...", "0888...",
     "+359..., +359...") get a leading ' so Sheets stores them as text instead of a number that loses the + or
-    the 0, or garbles a list. The ' is not part of the value: reads return the string without it."""
+    the 0, or garbles a list. So do strings starting with = - @: scraped titles («=== ПРОДАВАМ ФЕЦ ===») and seller
+    text must never become formulas. The ' is not part of the value: reads return the string without it."""
     vals = ["" if r.get(h) is None else r.get(h) for h in head]
-    return ["'" + v if isinstance(v, str) and re.match(r"\+|0\d", v) else v for v in vals]
+    return ["'" + v if isinstance(v, str) and re.match(r"[+=@-]|0\d", v) else v for v in vals]
 
 
 def update(api, sid: str, tab: str, rows: list[dict]) -> None:
@@ -115,7 +120,8 @@ def update(api, sid: str, tab: str, rows: list[dict]) -> None:
     head = TABS[tab]
     data = [{"range": f"'{tab}'!A{r['_row']}", "values": [cells(r, head)]} for r in rows]
     if data:
-        api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "USER_ENTERED", "data": data}).execute()
+        api.values().batchUpdate(spreadsheetId=sid, body={"valueInputOption": "USER_ENTERED", "data": data}).execute(
+            num_retries=RETRIES)
 
 
 def kv(api, sid: str, tab: str) -> dict[str, dict]:
@@ -137,4 +143,11 @@ def append(api, sid: str, tab: str, rows: list[dict]) -> None:
     if rows:
         values = [cells(r, TABS[tab]) for r in rows]
         api.values().append(spreadsheetId=sid, range=f"'{tab}'!A1", valueInputOption="USER_ENTERED",
-                            insertDataOption="INSERT_ROWS", body={"values": values}).execute()
+                            insertDataOption="INSERT_ROWS", body={"values": values}).execute(num_retries=RETRIES)
+
+
+def next_id(ids, prefix: str = "D") -> str:
+    """Next id after the largest existing one («D007» -> «D008»). A count would reuse a live id after a deleted row
+    or a draft counted twice in one pass, and by_id would then hide one of the two drafts."""
+    n = max([int(re.sub(r"\D", "", i) or 0) for i in ids] + [0]) + 1
+    return f"{prefix}{n:03d}"

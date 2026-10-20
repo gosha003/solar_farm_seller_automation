@@ -36,7 +36,7 @@ class FakeSvc:
         self.calls = []
         threads = {"t1": {"messages": [msg(labels=("SENT", "L1"), frm="owner@example.com", id="m0"), msg()]},
                    "t2": {"messages": [msg(id="x1")]}}
-        ex = lambda v: SimpleNamespace(execute=lambda: v)
+        ex = lambda v: SimpleNamespace(execute=lambda **k: v)
         self.labels = lambda: SimpleNamespace(list=lambda **k: ex({"labels": [{"name": "SolarBG", "id": "L1"},
                                                                                {"name": "SolarBG/обработано", "id": "L2"}]}))
         self.threads = lambda: SimpleNamespace(
@@ -62,7 +62,7 @@ def test_adopt_labels_mail_from_known_sellers_by_address_or_corporate_domain():
     assert gmail.contact_query(["contact@agency.example", "Ivan@Gmail.com", "owner@example.com", "", "-"],
                                "owner@example.com") == "agency.example OR ivan@gmail.com"
     svc, queries = FakeSvc(), []
-    ex = lambda v: SimpleNamespace(execute=lambda: v)
+    ex = lambda v: SimpleNamespace(execute=lambda **k: v)
     modify = svc.messages().modify
     svc.messages = lambda: SimpleNamespace(list=lambda **k: queries.append(k["q"]) or ex({"messages": [{"id": "z1"}]}),
                                            modify=modify)
@@ -90,3 +90,59 @@ def test_message_headers_are_plain_and_named():
     assert "owner@example.com" in m["From"] and "Иван Петров" in str(m["From"])
     assert m["In-Reply-To"] == "<abc@mail>" and m.get_content_type() == "text/plain"
     assert "List-Unsubscribe" not in raw and "Precedence" not in raw and "<img" not in raw
+
+
+def test_outlook_quotes_and_charsets():
+    bg = "Да, работи.\n\nОт: Иван Петров <owner@example.com>\nИзпратено: 1 октомври 2026 г.\nЗдравейте, видях обявата"
+    assert gmail.strip_quote(bg) == "Да, работи."
+    assert gmail.strip_quote("Да.\n-----Исходное сообщение-----\nЗдравствуйте") == "Да."
+    assert gmail.strip_quote("От: 2019 работи, от собственика.") == "От: 2019 работи, от собственика."
+    part = {"headers": [{"name": "Content-Type", "value": 'text/plain; charset="koi8-r"'}]}
+    assert gmail.decode("Работает".encode("koi8-r"), part) == "Работает"
+    assert gmail.decode(b"ok", {"headers": [{"name": "Content-Type", "value": "text/plain; charset=x-unknown"}]}) == "ok"
+
+
+def test_delay_and_public_domains():
+    assert gmail.is_delay(msg(frm="mailer-daemon@googlemail.com", subject="Delivery Status Notification (Delay)"))
+    assert not gmail.is_delay(msg(frm="mailer-daemon@googlemail.com", subject="Delivery Status Notification (Failure)"))
+    assert all(gmail.is_public(d) for d in ("gmx.de", "yahoo.co.uk", "bk.ru", "hotmail.bg", "abv.bg"))
+    assert not gmail.is_public("agency-solar.example") and not gmail.is_public("me-solar.example")
+    assert gmail.contact_query(["s@gmx.de"], "owner@example.com") == "s@gmx.de"
+
+
+def test_label_failure_after_send_still_returns_the_letter(monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    svc = FakeSvc()
+    send = svc.messages().send
+
+    def modify(userId, id, body):
+        raise RuntimeError("503")
+    svc.messages = lambda: SimpleNamespace(send=send, modify=modify)
+    assert gmail.send(svc, "seller@abv.bg", "s", "b") == {"id": "s1", "threadId": "new"}
+
+
+def test_followup_replies_to_the_last_message_of_its_thread(monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    svc = FakeSvc()
+    gmail.send(svc, "seller@abv.bg", "Re: Запитване", "b", thread_id="t1")
+    raw = base64.urlsafe_b64decode(svc.calls[0][1]["raw"]).decode()
+    assert "In-Reply-To: <abc@mail>" in raw and svc.calls[0][1]["threadId"] == "t1"
+
+
+def test_inline_answers_between_our_quoted_questions_are_kept():
+    body = ("Здравейте,\nотговорите са по-долу.\n\nOn Wed, Oct 8, 2026 Ivan wrote:\n> 1. Централата действаща ли е?\n"
+            "Да, от 2019 г.\n> 2. Каква е мощността?\n1,5 MW\n> 3. Цена?\n")
+    assert gmail.strip_quote(body) == "Здравейте,\nотговорите са по-долу.\nДа, от 2019 г.\n1,5 MW"
+
+
+def test_failure_before_the_send_is_not_sent(monkeypatch):
+    import pytest
+    monkeypatch.setenv("DRY_RUN", "false")
+    svc = FakeSvc()
+
+    def boom(**k):
+        raise ConnectionResetError("reset")
+    svc.labels = lambda: SimpleNamespace(list=lambda **k: SimpleNamespace(execute=boom))
+    with pytest.raises(gmail.NotSent):
+        gmail.send(svc, "seller@abv.bg", "s", "b")
+    assert svc.calls == []
