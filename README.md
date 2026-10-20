@@ -158,6 +158,7 @@ python -m solar_outreach.search --only pc      # imot.bg + olx.bg
 python -m solar_outreach.search --import found.json   # listings the browser routine collected
 python -m solar_outreach.alo_reply pending     # alo.bg replies to read in the account
 python -m solar_outreach.site_queue pending    # alo.bg / WhatsApp messages to send
+python -m solar_outreach.site_queue log S0xx out WhatsApp @msg.txt   # a message read/sent by hand: dialog log + note
 ```
 
 The operator interface (Telegram bot, sheet tabs and columns, owner summaries) is in Russian because the operator
