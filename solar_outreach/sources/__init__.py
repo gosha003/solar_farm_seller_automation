@@ -28,10 +28,16 @@ PV = re.compile(r"фотовол|фотоволт|фец|фвец|соларе?�
 SERVICES = re.compile(r"изгражд|проектир|монтаж|инвертор|панел|търс|\bкупува|ремарке|^батери|бойлер|компенсир"
                       r"|под наем|сглобен|оборудван|подд?ръжк|профилакт|почиств|кабел|конструкц|система за"
                       r"|бензиностанц|газстанц|автомивк|автосервиз"
-                      r"|електротехник|работа|служител|оператор|техник|косене|трева|земеделска земя|декара", re.I)
+                      r"|електротехник|работа|служител|оператор|техник|косене|трева", re.I)
+LAND = re.compile(r"земеделска земя|декара", re.I)  # a plot of land: kept only when the title names a building permit
 # Not an operating plant: a plot «за ФЕЦ», a project. Kept when the title names a building permit (owner 2026-10-19).
-NOT_OPERATING = re.compile(r"за фотовол|за фец|подходящ|проект|уведомление|разрешени|разрешител|за строеж", re.I)
+# The use permit («разрешение/разрешително за ползване») and «подходяща (за) инвестиция» describe an operating plant.
+NOT_OPERATING = re.compile(r"за фотовол|за фец|подходящ(?!\w*\s+(?:за\s+)?инвест)|проект|уведомление"
+                           r"|разрешени(?!\w* за ползване)|разрешител(?!\w* за ползване)|за строеж", re.I)
 PERMIT = re.compile(r"(разрешени\w*|разрешително) (за|на) строеж|ready[- ]to[- ]build|\bRTB\b", re.I)
+# Evidence that the plant runs: it beats a building permit mentioned in passing («документи: ..., разрешение за строеж»).
+OPERATING = re.compile(r"работещ|действащ|експлоатац|въведен|акт 16|разрешени\w* за ползване|пуснат|(?<!ще )произвежда"
+                       r"|годишно производство|произведен|в работа|\bработи\b", re.I)
 
 
 @dataclass
@@ -47,14 +53,15 @@ class Listing:
 
 
 def is_station_sale(title: str) -> bool:
-    return (bool(PV.search(title)) and not SERVICES.search(title)
-            and (not NOT_OPERATING.search(title) or bool(PERMIT.search(title))))
+    permit = bool(PERMIT.search(title))
+    return (bool(PV.search(title)) and not SERVICES.search(title) and (permit or not LAND.search(title))
+            and (not NOT_OPERATING.search(title) or permit))
 
 
 def robots_rules(text: str) -> list[tuple[bool, str]]:
     """Rules of the `User-agent: *` group as (allow, pattern)."""
     rules, in_star, ua_block = [], False, False
-    for line in text.splitlines():
+    for line in text.lstrip("\ufeff").removeprefix("\xef\xbb\xbf").splitlines():  # a BOM, decoded as utf-8 or latin-1
         key, _, value = line.split("#")[0].partition(":")
         key, value = key.strip().lower(), value.strip()
         if key == "user-agent":

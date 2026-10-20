@@ -9,13 +9,15 @@ UNIT = r"([mм](?:w|вт)[pрп]?|(?:мегават|киловат)(?!\w*час)
 POWER = re.compile(NUM + r"\s*-?\s*" + UNIT + r"(?![a-zа-я])(?!\s*[-/.]?\s*(?:ч|час\w*|h)(?![a-zа-я]))", re.I)
 VOLTS = {0.4, 6, 10, 20, 35, 110}  # kV of Bulgarian distribution lines
 MONEY = re.compile(NUM + r"\s*(€|eur\w*|евро|лв\.?|лева|bgn)|(€|eur)\s*" + NUM, re.I)
+PER_UNIT = re.compile(r"\s*(?:/|(?:на|за|per)\s)\s*(?:[kк][wв]|[mм][wв]|мегават|киловат|[mм][2²])", re.I)  # «€/MW», «лв за кВт»
 YEAR = re.compile(r"(?:експлоатация|изградена|построена|пусната|въведена|от|година|г\.?)\D{0,25}?\b(20[01]\d|202[0-6])\b"
                   r"|\b(20[01]\d|202[0-6])\s*(?:г\.|год)", re.I)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 PHONE = re.compile(r"(?:\+359|00359|\b0)\s*(8[789](?:[\s-]*\d){7})")
 SITE_EMAILS = re.compile(r"@(bazar|alo|olx|imot|imoti|homes)\.(bg|net)$", re.I)
-TARIFF = re.compile(r"преференциал|фиксиран\w* цен|договор за изкупуване|изкупуване на (ел|електр)|\bНЕК\b|\bЕСО\b"
-                    r"|Електрохолд|ЕВН|EVN|Енерго-?Про|ЧЕЗ", re.I)
+TARIFF_WORDS = re.compile(r"преференциал|фиксиран\w* цен|договор за изкупуване|изкупуване на (ел|електр)|\bНЕК\b", re.I)
+DSO = re.compile(r"\bЕСО\b|Електрохолд|ЕВН|EVN|Енерго-?Про|ЧЕЗ", re.I)  # grid companies: a project names them too
+TARIFF = re.compile(f"{TARIFF_WORDS.pattern}|{DSO.pattern}", re.I)
 MARKET = re.compile(r"свободен пазар|\bIBEX\b|\bБНЕБ\b|борса|търговец|балансираща група|пазарн\w* цен", re.I)
 DOCS = re.compile(r"нотариален акт|документ|разрешение за (строеж|ползване)|акт 1[456]|удостоверение за въвеждане", re.I)
 SPV = re.compile(r"\bSPV\b|фирм|дружество|\bЕ?ООД\b|\bАД\b|дялове|лиценз", re.I)
@@ -66,14 +68,14 @@ def price_eur(price_text: str, text: str, eur_bgn: float) -> float | None:
         found = set()
         for m in MONEY.finditer(src):
             amount, cur = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
+            if PER_UNIT.match(src, m.end()):  # «750 000 €/MW» is a rate, not the total: the letter asks the price
+                continue
             value = num(amount)
             if value < 1000:  # prices per m², per kW, per kWh
                 continue
             found.add(round(value / eur_bgn if cur.lower().startswith(("л", "b")) else value))
-        if len(found) == 1:
-            return float(found.pop())
-        if found:
-            return None
+        if found:  # one amount, or EUR plus a rounded BGN conversion of it
+            return float(min(found)) if max(found) <= min(found) * 1.005 else None
     return None
 
 

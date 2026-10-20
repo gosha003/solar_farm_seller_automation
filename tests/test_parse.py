@@ -48,6 +48,9 @@ BAZAR_60 = ("Предлагам за продажба фотоволтаична
     ("ФЕЦ 1 000 kW", "", 1000),
     ("Продава проект за ФЕЦ", "проект за 500кВ", 500),           # «кВ» written for kW
     ("ФЕЦ 1500 кВ", "", 1500),
+    ("ФЕЦ 1,500 MW", "", 1500),
+    ("ФЕЦ 1 MW с БКТП 20 кВ", "", 1000),
+    ("Фотоволтаична централа", "Продава се ФЕЦ 1,5 MW, присъединена към БКТП 20/0,4 кВ", 1500),
 ])
 def test_power(title, text, kw):
     assert parse.power_kw(title, text) == kw
@@ -63,6 +66,11 @@ def test_power(title, text, kw):
     ("1 160 000 € 64.44 €/кв.м", "", 1_160_000),           # price per m² is dropped
     ("", "цена 900 000 EUR или 1 000 000 EUR с батерия", None),
     ("220,000 EUR", "", 220_000),                          # kpd.bg: comma = thousands
+    ("", "Цена: 750 000 €/MW, мощност 2 MW", None),        # a rate per MW is not the total
+    ("1 050 €/kWp", "", None),
+    ("", "300 000 лв. на MW", None),
+    ("", "цена 1 160 000 € за мощност 1,5 MW", 1_160_000),
+    ("", "цена 1 160 000 € (2 268 800 лв.)", 1_160_000),  # EUR + rounded BGN conversion
 ])
 def test_price(price_text, text, eur):
     assert parse.price_eur(price_text, text, EUR_BGN) == eur
@@ -99,6 +107,19 @@ def test_year_regime_contacts():
     ("Продава ПАРЦЕЛ, с. Лиляк, област Търговище", False),
     ("1900 декара земеделска земя извън категория, близо до фотоволтаичен парк", False),
     ("Косене на трева във фотоволтаични паркове (ФЕЦ)", False),
+    ("Продава ФЕЦ 1,2 MW с разрешение за ползване", True),   # the use permit: operating
+    ("Фотоволтаична централа 1 MW - подходяща инвестиция", True),
+    ("Земя подходяща за соларен парк 2 MW", False),
+    ("Работещ проект за ФЕЦ 1 MW", False),
+    ("Продавам работещи фотоволтаични панели 5 бр", False),
 ])
 def test_is_station_sale(title, ok):
     assert is_station_sale(title) is ok
+
+
+def test_operating_wording_and_permitted_plots_pass_the_title_filter():
+    from solar_outreach.sources import is_station_sale
+    for title, ok in [("Продавам ФЕЦ 1 MW, подходяща за инвестиция", True), ("ФЕЦ 1,5 MW с разрешително за ползване", True),
+                      ("Терен 25 декара с разрешение за строеж за ФЕЦ 2 MW", True), ("Земя подходяща за ФЕЦ 2 MW", False),
+                      ("1900 декара земеделска земя до фотоволтаичен парк", False)]:
+        assert is_station_sale(title) == ok, title
