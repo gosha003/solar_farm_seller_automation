@@ -1,9 +1,10 @@
 """«Ручная очередь» messages for alo.bg and WhatsApp, sent by a scheduled Claude-in-Chrome routine in the
 owner's browser (Viber and other sites stay with people). The routine drives this CLI (usage: USAGE).
+`log` records what Claude read or sent by hand at the owner's request (WhatsApp Desktop, Gmail), outside the queue.
 """
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 
 from solar_outreach import inbox, notify, owner, sheets
 from solar_outreach.config import load_config, load_env, single_run
@@ -14,6 +15,8 @@ USAGE = """Сообщения «Ручной очереди» для alo.bg и W
     python -m solar_outreach.site_queue text S0xx @файл.txt     # записать текст сообщения в UTF-8 файл (не вышло: файл пустой, код возврата 1)
     python -m solar_outreach.site_queue sent S0xx @файл.txt     # это сообщение отправлено: станция ждёт ответа, дожимы 4/9 дней
     python -m solar_outreach.site_queue failed S0xx <причина>   # отправить нельзя (номера нет в WhatsApp, объявление снято): владельцу
+    python -m solar_outreach.site_queue log S0xx in|out <канал> @файл.txt|текст [--next <следующий шаг>]
+        # Claude по просьбе владельца прочитал/отправил сообщение вне очереди (WhatsApp, email): в «Диалоги» и примечание
 """  # printed to the owner, so it stays in Russian
 
 
@@ -82,6 +85,23 @@ def failed(api, sid, station_id: str, why: str) -> str:
     return f"{r['id станции']}: отмечено «не отправлено с ПК», владелец оповещён."
 
 
+def log(api, sid, station_id: str, direction: str, channel: str, text: str, now: datetime, next_step: str = "") -> str:
+    """A message Claude read or sent by hand at the owner's request, outside the queue. Recorded as is: no LLM, no status
+    change, so it neither starts follow-ups nor drafts a reply (a seller reply still goes through /note for that)."""
+    st = next((s for s in sheets.read(api, sid, "Станции") if s["id"] == station_id.upper()), None)
+    if not st or direction not in ("in", "out"):
+        return f"Нет станции {station_id} или направление не in/out: ничего не записано."
+    t = now.date().isoformat()
+    sheets.append(api, sid, "Диалоги", [{"id станции": st["id"], "направление": direction, "дата": t, "канал": f"{channel} (вручную)",
+                                          "язык": "", "краткое содержание": text, "тред Gmail": ""}])
+    line = f"{now:%d.%m %H:%M} {channel} {'←' if direction == 'in' else '→'} {text}"
+    st.update({"последний контакт": t, "примечание": f"{st['примечание']}\n{line}".strip()})
+    if next_step:
+        st["следующий шаг"] = next_step
+    sheets.update(api, sid, "Станции", [st])
+    return f"{st['id']}: записано в «Диалоги» и примечание."
+
+
 def read_arg(arg: str) -> str:
     return open(arg[1:], encoding="utf-8").read() if arg.startswith("@") else arg
 
@@ -105,5 +125,8 @@ if __name__ == "__main__":
     elif a[:1] == ["failed"] and len(a) >= 3:
         with single_run("sheet", stale_sec=3600, wait=300):
             print(failed(api, sid, a[1], " ".join(a[2:])))
+    elif a[:1] == ["log"] and len(a) in (5, 7) and (len(a) == 5 or a[5] == "--next"):
+        with single_run("sheet", stale_sec=3600, wait=300):
+            print(log(api, sid, a[1], a[2], a[3], read_arg(a[4]).strip(), datetime.now(), a[6] if len(a) == 7 else ""))
     else:
         sys.exit(USAGE)

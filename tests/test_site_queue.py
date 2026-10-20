@@ -1,4 +1,6 @@
 """The PC routine sends «Ручная очередь» rows by itself: the same guards as email, one row per station."""
+from datetime import datetime
+
 from solar_outreach import site_queue
 
 ALO = {"id станции": "S001", "канал": "сайт (ручная)", "ссылка на объявление": "https://www.alo.bg/x-1", "статус": "отправить вручную"}
@@ -58,3 +60,19 @@ def test_failed_takes_the_station_off_the_routine_list(sheet):
     assert "оповещён" in site_queue.failed(None, None, "S002", "номера нет в WhatsApp")
     assert [r["id станции"] for r in site_queue.rows(None, None)] == ["S004"]
     assert sheet.tabs["Ручная очередь"][0]["статус"] == "не отправлено с ПК: номера нет в WhatsApp"
+
+
+def test_log_records_a_hand_sent_message_and_leaves_the_status_alone(sheet):
+    sheet.add("Станции", station("S004", "ждём ответа в WhatsApp", примечание="старое", **{"следующий шаг": "ждать"}))
+    now = datetime(2026, 1, 2, 3, 4)
+    assert "записано" in site_queue.log(None, None, "s004", "out", "WhatsApp", "дал email", now, "ждать презентаций")
+    site_queue.log(None, None, "S004", "in", "email", "прислал оферту", now)
+    st = sheet.tabs["Станции"][0]
+    assert st["статус переписки"] == "ждём ответа в WhatsApp"     # no follow-ups, no reply draft
+    assert st["примечание"] == "старое\n02.01 03:04 WhatsApp → дал email\n02.01 03:04 email ← прислал оферту"
+    assert st["последний контакт"] == "2026-01-02" and st["следующий шаг"] == "ждать презентаций"
+    assert [(d["направление"], d["канал"], d["краткое содержание"]) for d in sheet.tabs["Диалоги"]] == [
+        ("out", "WhatsApp (вручную)", "дал email"), ("in", "email (вручную)", "прислал оферту")]
+    assert "ничего не записано" in site_queue.log(None, None, "S999", "out", "WhatsApp", "x", now)
+    assert "ничего не записано" in site_queue.log(None, None, "S004", "sent", "WhatsApp", "x", now)
+    assert len(sheet.tabs["Диалоги"]) == 2
