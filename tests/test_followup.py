@@ -90,6 +90,7 @@ def test_two_followups_per_contact_across_both_stages():
 def test_no_followup_when_the_last_word_is_the_sellers():
     assert due([FIRST], "2026-10-20", [IN]) == []                                 # answered, our reply not sent yet
     assert due([FIRST, {**REPLY, "отправлено": "DRY_RUN"}], "2026-10-20", [IN]) == []
+    assert due([FIRST, {**REPLY, "статус": "пропущено"}], "2026-10-20", [IN]) == []    # skipped, the owner wrote his own
     assert due([FIRST, REPLY], "2026-10-20", [IN, {**IN, "дата": "2026-10-05"}]) == []   # he wrote after our reply
     assert due([FIRST, REPLY], "2026-10-20", [{**IN, "дата": ""}]) == []          # no date: assume it is new
     away = {**IN, "дата": "2026-10-05", "краткое содержание": "[auto_reply] отпуск"}
