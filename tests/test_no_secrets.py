@@ -1,4 +1,4 @@
-"""No keys may be in the repository before publishing. Runs locally and in CI."""
+"""No keys or private files may be in the repository before publishing. Runs locally with pytest."""
 import re
 import subprocess
 from pathlib import Path
@@ -24,7 +24,8 @@ def publishable_files() -> list[str]:
 def test_no_secret_files_or_keys_would_be_published():
     files = publishable_files()
     assert files, "git ls-files пуст: тест запущен не из репозитория?"
-    bad_names = [f for f in files if Path(f).name in (".env", "config.local.yaml") or Path(f).name.startswith("client_secret")]
+    bad_names = [f for f in files if Path(f).name in (".env", "config.local.yaml") or Path(f).name.startswith("client_secret")
+                 or re.fullmatch(r"found.*\.json", Path(f).name)]  # listings from the browser routine: seller contacts
     assert not bad_names, bad_names
     leaks = [f for f in files if (ROOT / f).is_file()
              and SECRET.search((ROOT / f).read_text(encoding="utf-8", errors="ignore"))]
