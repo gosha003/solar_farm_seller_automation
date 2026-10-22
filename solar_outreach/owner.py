@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from solar_outreach import inbox, llm, sheets
+from solar_outreach import brief, inbox, llm, sheets
 
 HELP = """Команды:
 /stats статистика
@@ -17,7 +17,8 @@ HELP = """Команды:
 /blacklist <email, телефон или домен> больше не писать
 /status <id станции> карточка станции
 /sent <id станции> ты отправил сообщение сам (WhatsApp, Viber, сайт, своя почта): ждём ответа, дожимы через 4 и 9 дней
-/note <id станции> <ответ продавца> вставь ответ из WhatsApp/Viber: факты в таблицу, эскалация или черновик ответа"""
+/note <id станции> <ответ продавца> вставь ответ из WhatsApp/Viber: факты в таблицу, эскалация или черновик ответа
+/brief <id станции> готова ли сводка директору, чего не хватает и что запрошено"""
 
 
 class Ctx:
@@ -109,6 +110,9 @@ def digest(c: Ctx, today: date) -> str:
                                          f"{s['статус переписки']}, пунктов {received(s)}/{len(sheets.ITEMS)}" for s in top)
                                  or " нет"),
              f"Ручная очередь: {len(manual)}" + (f" ({', '.join(r['id станции'] for r in manual)})" if manual else "")]
+    held = sorted({r["id станции"] for r in sheets.read(c.api, c.sid, "Сводки") if r["статус"] == "на одобрении"})
+    if held:
+        lines.append(f"Сводки директору ждут ✅: {', '.join(held)}")
     bounce = sum(int(v or 0) for k, v in c.state.items() if k.startswith("bounce ") and k[7:] >= since)
     if bounce:
         lines.append(f"Bounce за сутки: {bounce}")
@@ -224,10 +228,10 @@ def sent(c: Ctx, station_id: str, today: date, text: str = "") -> str:
         c.changed_drafts[d["id"]] = d
         c.new_dialogs.append({"id станции": st["id"], "направление": "out", "дата": t, "канал": f"{d['канал']} (вручную)",
                               "язык": d["язык"], "краткое содержание": f"{d['тип']}, отправил владелец", "тред Gmail": ""})
-        if not d["тип"].startswith("дожим"):
+        if not d["тип"].startswith(("дожим", brief.DOC_REQUEST)):
             sheets.mark_asked(st, d["тип"].startswith("первое"))
-    if text and st["статус переписки"] in inbox.PAUSED:  # e.g. the seller wrote again while the routine was sending
-        st["последний контакт"] = t
+    if (text or st["статус переписки"] == inbox.OWNER_LED) and st["статус переписки"] in inbox.PAUSED:
+        st["последний контакт"] = t  # the seller wrote again while the routine was sending, or it is the owner's dialog
     else:
         st.update({"статус переписки": "ждём ответа", "последний контакт": t, "следующий шаг": "ждать ответа"})
     return (f"📤 {st['id']}: отмечено отправленным ({', '.join(d['id'] for d in ds) or 'строка очереди'}). "
@@ -306,6 +310,8 @@ def command(text: str, c: Ctx, today: date) -> str:
         return f"⛔ {arg} в чёрном списке, больше не пишем."
     if cmd == "/status" and arg:
         return status(c, arg)
+    if cmd == "/brief" and arg:
+        return brief.status(c.api, c.sid, arg.split()[0])
     if cmd == "/sent" and arg:
         return sent(c, arg.split()[0], today)
     if cmd == "/note" and arg:
@@ -315,5 +321,6 @@ def command(text: str, c: Ctx, today: date) -> str:
              "/status": "Пришли /status и id станции, например /status S019.",
              "/blacklist": "Пришли /blacklist и email, телефон или домен.",
              "/sent": "Пришли /sent и id станции, например /sent S020.",
-             "/note": "Пришли /note, id станции и текст ответа продавца."}
+             "/note": "Пришли /note, id станции и текст ответа продавца.",
+             "/brief": "Пришли /brief и id станции, например /brief S020."}
     return hints.get(cmd, HELP)

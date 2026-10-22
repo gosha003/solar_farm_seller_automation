@@ -33,8 +33,15 @@ eur_bgn: 1.95583               # fixed EUR/BGN peg
 
 llm:
   model_fast: claude-haiku-5-5     # reply classification and fact extraction
-  model_strong: claude-sonnet-5-5  # letter rewrites and replies
+  model_strong: claude-sonnet-5-5  # letter rewrites and replies, reading seller documents
+  model_review: claude-opus-5-5    # director briefs and their fact-check
   json_retries: 1                  # after that the message escalates to the owner
+
+director:                      # brief.py: a summary email per object that is ready for official negotiations
+  email: director@example.com  # the real address lives in config.local.yaml
+  min_days_left: 60            # a permit or grid deadline closer than this blocks the brief
+  remind_days: 7               # a document request goes unanswered this long -> one reminder
+  max_attach_mb: 18            # Gmail takes 25 MB including base64
 
 limits:
   approvals_before_auto_offer: 10
