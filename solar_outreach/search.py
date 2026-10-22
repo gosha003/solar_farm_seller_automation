@@ -257,5 +257,6 @@ if __name__ == "__main__":
              sys.argv[sys.argv.index("--import") + 1] if "--import" in sys.argv else "")
     except Exception as e:  # a crash outside the per-source try (Sheets, config) leaves no trace in the sheet: tell the owner
         from solar_outreach import notify
-        notify.urgent(f"⚠️ поиск {' '.join(sys.argv[1:]) or 'сайты'} упал: {type(e).__name__}: {str(e)[:200]}")
+        notify.urgent(notify.join(notify.head("⚠️", "Поиск упал", " ".join(sys.argv[1:]) or "сайты"),
+                                  notify.esc(f"{type(e).__name__}: {str(e)[:200]}")))
         raise

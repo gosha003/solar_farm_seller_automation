@@ -68,7 +68,9 @@ flowchart LR
 2. **Drafts** ([drafts.py](solar_outreach/drafts.py)) are built from templates and sheet facts, without an
    LLM, so they contain no invented facts and cost nothing. The LLM only rewrites a draft when the owner asks for an edit.
 3. **Approval** ([approval.py](solar_outreach/approval.py), [notify.py](solar_outreach/notify.py)): the owner
-   sees each draft in Telegram with buttons. In auto mode, clean drafts approve themselves.
+   sees each draft in Telegram with buttons. In auto mode, clean drafts approve themselves. Every message uses one
+   Telegram HTML layout (bold title line, short sections, letters in collapsible quotes); all seller and model text is
+   escaped, and markup Telegram rejects falls back to plain text, so a notice is never lost.
 4. **Sending** ([gmail_client.py](solar_outreach/gmail_client.py)) respects daily limits and spaces letters out.
    Phone and website contacts go to a manual queue with prefilled WhatsApp and Viber links.
 5. **Inbox** ([inbox.py](solar_outreach/inbox.py), [llm.py](solar_outreach/llm.py)): replies are classified into
@@ -106,7 +108,8 @@ official negotiations, and only then writes a brief for the company director.
   of place: documents promised only after an NDA or a deposit, a recent unanswered request, a closed conversation. The
   request is an ordinary draft, so the hard rules and the approval mode apply; in a conversation the owner leads it is
   always a card, never an automatic letter.
-- **The director's replies.** His answer in the brief's thread is recorded and summarised for the owner. Documents and
+- **The director's replies.** His answer in the brief's thread, or a new letter from his address about a briefed object
+  (matched by station id or by Claude; personal mail is only marked as seen), is recorded and summarised for the owner. Documents and
   factual questions he asks for are requested from the seller without the owner; price, terms, NDA and meetings stay
   with the owner. An outright rejection closes the station as a refusal for that listing only (the broker's other
   objects stay open). He gets a short reply on what was done, and later the documents themselves, attached, as they

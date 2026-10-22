@@ -13,6 +13,8 @@ import google.auth
 from google.auth.exceptions import DefaultCredentialsError
 from google.auth.transport.requests import AuthorizedSession
 
+from solar_outreach.notify import code, head, join
+
 API = "https://pubsub.googleapis.com/v1/"
 
 
@@ -42,8 +44,8 @@ def enforce(subscription: str, urgent, session=None) -> str | None:
         return None
     ratio = r["costAmount"] / r["budgetAmount"]
     if ratio >= 1:
-        urgent(f"🛑 Расходы Google Cloud достигли бюджета ({ratio:.0%}). Выключаю VM, бот остановлен. "
-               "Проверь Billing в консоли; включить: gcloud compute instances start solar-bot --zone us-east1-b")
+        urgent(join(head("🛑", "Расходы Google Cloud достигли бюджета", f"{ratio:.0%}"), "Выключаю VM, бот остановлен.",
+                    "Проверь Billing в консоли; включить: " + code("gcloud compute instances start solar-bot --zone us-east1-b")))
         subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
     cur = r.get("currencyCode", "")
     return f"{r['costAmount']:.2f} из {r['budgetAmount']:.0f} {cur} с {r.get('costIntervalStart', '')[:10]}"

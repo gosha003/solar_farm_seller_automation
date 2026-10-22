@@ -60,7 +60,8 @@ def failure(err: str) -> None:
         n = int(f.read_text() if f.exists() else 0) + 1
         f.write_text(str(n))
     if n == ALERT_AFTER:
-        notify.urgent(f"⚠️ {n} запуска подряд с ошибкой. Последняя: {err}")
+        notify.urgent(notify.join(notify.head("⚠️", f"{n} запуска подряд с ошибкой"),
+                                  f"{notify.b('Последняя:')} {notify.esc(err)}"))
 
 
 def once(test_n: int = 0, with_inbox: bool = True) -> int | None:

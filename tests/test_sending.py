@@ -219,3 +219,5 @@ def test_owner_is_not_told_to_send_what_the_routine_sends(monkeypatch):
     for st in (alo, viber_only):
         approval.present(approval.make_draft(st, "D001", test=False), dict(st), True, [])
     assert "сам не отправляй" in out[0] and len(out) == 4 and "/sent S001" in out[1]   # alo: one line; other site: + hint
+    letter = approval.make_draft(viber_only, "D001", test=False)["текст"]
+    assert approval.notify.plain(out[3]) == letter and "<" not in out[3]          # pasted on the site as is, no markup
