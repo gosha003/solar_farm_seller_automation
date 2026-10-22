@@ -12,8 +12,8 @@ import sys
 import time
 from datetime import date, timedelta
 
-from solar_outreach import (brief, drafts, followup, gmail_client as gmail, inbox, llm, notify, owner, rules, sheets,
-                            site_queue)
+from solar_outreach import (brief, documents, drafts, followup, gmail_client as gmail, inbox, llm, notify, owner, rules,
+                            sheets, site_queue)
 from solar_outreach.config import dry_run, load_config, single_run
 from solar_outreach.notify import b, code, esc, head, i, join, link, quote
 
@@ -206,6 +206,10 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                     d["статус"], pending = "ждёт правки", did
                     notify.answer_callback(cq["id"])
                     notify.send(join(head("✏️", "Правка", d["id станции"], did), "Пришли одним сообщением, что поменять."))
+            elif msg.get("document") or msg.get("photo") or (
+                    msg.get("text") and not pending and not msg["text"].startswith("/") and documents.drive_links(msg["text"])):
+                # a file or a Drive link forwarded to the bot (e.g. from WhatsApp) with «S0xx»: into the station folder
+                notify.send(documents.from_telegram(msg, stations, date.today()))
             elif msg.get("text") and pending and not msg["text"].startswith("/"):
                 d, pending = by_id.get(pending), ""
                 st = stations.get(d["id станции"]) if d else None
