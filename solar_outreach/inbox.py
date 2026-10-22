@@ -14,6 +14,7 @@ from email.utils import parseaddr
 from solar_outreach import drafts, drive, gmail_client as gmail, llm, notify, parse, rules, sheets
 from solar_outreach.config import dry_run
 from solar_outreach.contacts import channel
+from solar_outreach.notify import esc, head, join, link, quote, section
 
 ESCALATE = {"price_discussion", "counteroffer", "wants_call_or_meeting", "asks_who_are_you", "asks_for_docs_or_nda",
             "asks_money", "suspicious", "other"}
@@ -36,6 +37,7 @@ HOLD = ("эскалация", "отказ", "пропущено владельц
 PAUSED = (*HOLD, "ответ на alo", OWNER_LED)  # hard rules: nothing goes out to these stations until the owner decides
 ALO = re.compile(r"@([\w-]+\.)*alo\.bg$")  # alo.bg notifications about seller replies (they can only be answered on the site)
 ALO_NOTICE = re.compile(r"ново съобщение|new message", re.I)  # the alo email has only a link; the reply text is in the alo.bg account
+ALO_MESSAGES = "https://www.alo.bg/user_messages.php"  # the alo.bg account's messages, where the reply text is
 GREETING = {"bg": "Здравейте,", "en": "Hello,", "ru": "Здравствуйте,"}
 
 
@@ -85,6 +87,21 @@ def station_by_ad(stations: dict, text: str) -> dict | None:
 
 def thread_url(thread_id: str) -> str:
     return f"https://mail.google.com/mail/u/0/#all/{thread_id}"
+
+
+def _url(v: str, label: str) -> str:
+    """A web link as a short label; anything else (an email, a phone) as text."""
+    return link(v, label) if (v or "").strip().startswith(("http://", "https://")) else esc(v)
+
+
+def _file(f: str) -> str:
+    """An attachment from save_files: «name: Drive link» becomes the linked name, a name with a note stays text."""
+    name, _, url = f.rpartition(": ")
+    return link(url, name or url) if url.startswith(("http://", "https://")) else esc(f)
+
+
+def _from(frm: str, thread_id: str) -> str:
+    return f"<b>От:</b> {esc(frm)} · {link(thread_url(thread_id), 'тред в Gmail')}"
 
 
 def decide(category: str, confidence: str, body: str) -> str:
@@ -212,16 +229,18 @@ def process(api, sid, svc, auto: bool = False) -> dict:
         status = st["статус переписки"] if st else ""
         if ALO.search(frm) and (st is None or ALO_NOTICE.search(body)):
             if ALO_NOTICE.search(body) and not st:  # nothing marks it «ответ на alo»: the routine won't read it
-                notify.urgent("📨 Ответ на alo.bg, станцию не определил: бот его не прочитает. "
-                              "Открой https://www.alo.bg/user_messages.php сам.")
+                notify.urgent(join(head("📨", "Ответ на alo.bg"), "Станцию не определил: бот его не прочитает. "
+                                   f"Открой {link(ALO_MESSAGES, 'сообщения на alo.bg')} сам."))
             elif ALO_NOTICE.search(body):
                 where = st["id"]
                 if status in HOLD or status == OWNER_LED:  # the routine must not answer a paused dialog
-                    notify.send(f"📨 Ответ на alo.bg ({where}), диалог на паузе ({status}): бот не читает и не отвечает. "
-                                "Прочитай сам: https://www.alo.bg/user_messages.php")
+                    notify.send(join(head("📨", "Ответ на alo.bg", where),
+                                     f"Диалог на паузе ({esc(status)}): бот не читает и не отвечает. "
+                                     f"Прочитай сам: {link(ALO_MESSAGES, 'сообщения на alo.bg')}"))
                 else:
-                    notify.send(f"📨 Ответ на alo.bg ({where}), в письме текста нет. Читаю в кабинете alo: нужен включённый ПК "
-                                "с открытым Chrome. Если не прочитается, открой https://www.alo.bg/user_messages.php сам.")
+                    notify.send(join(head("📨", "Ответ на alo.bg", where),
+                                     "В письме текста нет. Читаю в кабинете alo: нужен включённый ПК с открытым Chrome.",
+                                     f"Если не прочитается, открой {link(ALO_MESSAGES, 'сообщения на alo.bg')} сам."))
                     if st:
                         st["статус переписки"], st["следующий шаг"] = "ответ на alo", "прочитать в кабинете alo (alo_reply.py)"
                 if st:
@@ -237,7 +256,7 @@ def process(api, sid, svc, auto: bool = False) -> dict:
         except llm.LLMUnavailable:
             raise  # the API is down: read this message again next pass instead of escalating it
         except llm.LLMError as e:
-            c, category, why = None, "other", f"\n(разбор не удался: {e})"
+            c, category, why = None, "other", f"(разбор не удался: {e})"
         sid_ = st["id"] if st else "?"
         summary = c.summary_ru if c else body[:200]
         new_dialogs.append({"id станции": sid_, "направление": "in", "дата": today, "канал": "email",
@@ -249,9 +268,9 @@ def process(api, sid, svc, auto: bool = False) -> dict:
             st["последний контакт"] = today
         hold = status in HOLD and category != "auto_reply" and (category not in CLOSE or status == "отказ")
         if st and (status == OWNER_LED or hold):
-            who = "переписку ведёшь ты" if status == OWNER_LED else f"диалог на паузе: {status}"
-            notify.urgent(f"📩 {sid_} · {category} ({who}, бот не отвечает)\nОт: {frm}\n{summary}{why}\n"
-                          f"Тред: {thread_url(msg['threadId'])}")
+            who = "Переписку ведёшь ты" if status == OWNER_LED else f"Диалог на паузе: {status}"
+            notify.urgent(join(head("📩", "Письмо продавца", sid_, category), esc(summary), esc(why),
+                               _from(frm, msg["threadId"]), f"{esc(who)}, бот не отвечает."))
             return
         em = ph = []
         if c and category == "broker_redirect":
@@ -261,10 +280,10 @@ def process(api, sid, svc, auto: bool = False) -> dict:
             stats["эскалаций"] += 1
             if st:
                 st["статус переписки"], st["следующий шаг"] = "эскалация", f"решение владельца: {category}"
-            contact = f"\nНовый контакт: {c.new_contact or 'не найден'}" if category == "broker_redirect" else ""
-            notify.urgent(f"🚨 {sid_} · {category}\nОт: {frm}\n{summary}{why}{contact}\n"
-                          + (f"Вложения (не открывались):\n" + "\n".join(files) + "\n" if files else "")
-                          + f"Тред: {thread_url(msg['threadId'])}\nДиалог на паузе до твоего решения.")
+            contact = f"<b>Новый контакт:</b> {esc(c.new_contact or 'не найден')}" if category == "broker_redirect" else ""
+            notify.urgent(join(head("🚨", "Эскалация", sid_, category), esc(summary), esc(why), contact,
+                               section("Вложения (не открывались)", [_file(f) for f in files]),
+                               _from(frm, msg["threadId"]), "Диалог на паузе до твоего решения."))
         elif category in CLOSE:
             stats["закрыто"] += 1
             new_refusals.append({"контакт": frm, "id станции": sid_, "причина": "продано" if category == "sold" else "отказ",
@@ -281,7 +300,9 @@ def process(api, sid, svc, auto: bool = False) -> dict:
         elif category in ("info_provided", "question_we_can_answer"):
             if not missing_items(st):
                 if status != "квалифицирована":
-                    notify.urgent(f"✅ {sid_} полностью квалифицирована: все пункты раздела 3 получены.\n{st['ссылка']}")
+                    notify.urgent(join(head("✅", "Квалифицирована", sid_),
+                                       "Станция полностью квалифицирована: все пункты раздела 3 получены.",
+                                       _url(st["ссылка"], "объявление")))
                 st["статус переписки"] = "квалифицирована"
             else:
                 manual = bool(ALO.search(frm))  # noreply@alo.bg can't be answered: the text goes to the owner, who replies on the site
@@ -293,7 +314,8 @@ def process(api, sid, svc, auto: bool = False) -> dict:
                 except llm.LLMUnavailable:
                     raise
                 except llm.LLMError as e:
-                    notify.urgent(f"⚠️ {sid_}: не смог составить ответ ({e}). Тред: {thread_url(msg['threadId'])}")
+                    notify.urgent(join(head("⚠️", "Не смог составить ответ", sid_),
+                                       f"{esc(e)}\n{link(thread_url(msg['threadId']), 'тред в Gmail')}"))
                 else:
                     if auto and not d["нарушения правил"] and not manual and not dry_run():
                         d["статус"] = "одобрено"  # only the owner switches the mode (/auto on); handled in approval.main
@@ -367,6 +389,7 @@ def process(api, sid, svc, auto: bool = False) -> dict:
 
 
 def _card(d: dict, st: dict, summary: str) -> str:
-    warn = f"\n⚠️ Нарушения правил: {d['нарушения правил']}" if d["нарушения правил"] else ""
-    return (f"↩️ {d['id']} · {st['id']} · ответ ({d['язык']})\nПродавец написал: {summary}\nКому: {d['кому']}{warn}"
-            f"\n\nТема: {d['тема']}\n\n{d['текст']}")
+    warn = f"⚠️ <b>Нарушения правил:</b> {esc(d['нарушения правил'])}" if d["нарушения правил"] else ""
+    return join(head("↩️", "Черновик ответа", st["id"], d["id"], d["язык"]),
+                f"<b>Продавец написал:</b> {esc(summary)}\n<b>Кому:</b> {_url(d['кому'], 'объявление')}", warn,
+                f"<b>Тема:</b> {esc(d['тема'])}" if d["тема"] else "", quote(d["текст"]))

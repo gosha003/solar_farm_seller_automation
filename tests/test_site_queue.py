@@ -33,11 +33,14 @@ def test_rows_skip_paused_refused_and_older_rows(sheet):
 
 
 def test_sent_marks_only_the_message_that_was_handed_out(sheet, monkeypatch):
+    told = []
+    monkeypatch.setattr(site_queue.notify, "try_send", told.append)
     sheet.add("Станции", station("S004", "одобрено, ждёт отправки"))
     sheet.add("Черновики", {"id": "D001", "id станции": "S004", "тип": "дожим 1", "статус": "одобрено", "текст": "старое"},
               {"id": "D002", "id станции": "S004", "тип": "ответ", "статус": "одобрено", "текст": "ответ"})
     sheet.add("Ручная очередь", {**ALO, "id станции": "S004", "текст": "старое"}, {**ALO, "id станции": "S004", "текст": "ответ"})
-    assert "D002" in site_queue.sent(None, None, "S004")
+    out = site_queue.sent(None, None, "S004")
+    assert "D002" in out and "<" not in out and "D002" in told[0] and "Отправлено с ПК, alo" in told[0]  # printed copy plain
     assert [d["статус"] for d in sheet.tabs["Черновики"]] == ["отменено: заменено новым", "отправлено"]  # never sent later
     assert [r["статус"] for r in sheet.tabs["Ручная очередь"]] == ["отменено: заменено новым", "отправлено вручную"]
     assert "Нет такого сообщения" in site_queue.sent(None, None, "S999")
@@ -54,10 +57,14 @@ def test_sent_with_the_text_records_it_even_after_a_pause_and_keeps_the_pause(sh
     assert sheet.tabs["Станции"][0]["статус переписки"] == "ответ на alo"   # the new reply still gets read
 
 
-def test_failed_takes_the_station_off_the_routine_list(sheet):
+def test_failed_takes_the_station_off_the_routine_list(sheet, monkeypatch):
+    told = []
+    monkeypatch.setattr(site_queue.notify, "try_send", told.append)
     sheet.add("Станции", station("S002", телефон="+359888000222"), station("S004"))
     sheet.add("Ручная очередь", WA, {**ALO, "id станции": "S004"})
     assert "оповещён" in site_queue.failed(None, None, "S002", "номера нет в WhatsApp")
+    assert "номера нет в WhatsApp" in told[0] and "<code>/sent S002</code>" in told[0]
+    assert '<a href="https://bazar.example/2">объявление</a>' in told[0]
     assert [r["id станции"] for r in site_queue.rows(None, None)] == ["S004"]
     assert sheet.tabs["Ручная очередь"][0]["статус"] == "не отправлено с ПК: номера нет в WhatsApp"
 

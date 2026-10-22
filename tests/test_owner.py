@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from solar_outreach import owner, sheets
+from solar_outreach.notify import plain
 
 CFG = {"approval_mode": "manual", "limits": {"new_per_day": 30}, "notify": {"digest_hour": 8},
        "owner": {"timezone": "America/Toronto"}}
@@ -36,9 +37,11 @@ def test_stats_status_digest(monkeypatch):
     c = ctx(monkeypatch)
     s = owner.command("/stats", c, DAY)
     assert "первых 1 из 30" in s and "Режим: manual" in s
+    c.stations["S019"]["заголовок"] = "ФЕЦ <1.5 MW> & co"  # sellers write anything: escaped for Telegram HTML
     st = owner.command("/status s019", c, DAY)
-    assert "1 действующая: получен: да" in st and "773 €/кВт" in st
-    dg = owner.digest(c, date(2026, 10, 9))
+    assert "ФЕЦ &lt;1.5 MW&gt; &amp; co" in st and "<1.5" not in st
+    assert "✅ 1 действующая: да" in st and "▫️ 4 цена" in st and "773 €/кВт" in st and 'href="https://x"' in st
+    dg = plain(owner.digest(c, date(2026, 10, 9)))
     assert "S019" in dg and "пунктов 1/13" in dg and "Отправлено за сутки: 1" in dg
 
 
@@ -71,7 +74,8 @@ def test_sent_marks_manual_message_and_queue(monkeypatch):
     c.stations["S019"].update({i: "не спрошено" for i in sheets.ITEMS}, **{"статус переписки": "одобрено, ждёт отправки"})
     c.by_id["D002"] = {"id": "D002", "id станции": "S019", "тип": "первое", "статус": "одобрено", "отправлено": "",
                        "канал": "сайт (ручная)", "язык": "bg", "_row": 3}
-    assert "отмечено отправленным (D002)" in owner.command("/sent s019", c, DAY)
+    out = plain(owner.command("/sent s019", c, DAY))
+    assert "Отмечено отправленным · S019 · D002" in out
     st = c.stations["S019"]
     assert st["статус переписки"] == "ждём ответа" and st["1 действующая"] == "спрошено" and st["5 год ввода"] == "не спрошено"
     assert c.changed_drafts["D002"]["отправлено"] == "2026-10-08" and updated[0]["статус"] == "отправлено вручную"
@@ -103,7 +107,7 @@ def test_digest_flags_dead_sources_and_stuck_items(monkeypatch):
     c.stations["S019"]["статус переписки"] = "ответ на alo"
     c.dialogs.append({"id станции": "S019", "направление": "in", "дата": "2026-10-06", "краткое содержание": "[ответ на alo]"})
     c.by_id["D002"] = {"id": "D002", "id станции": "S019", "тип": "ответ", "статус": "на одобрении", "дата": "2026-10-05"}
-    lines = owner.digest(c, date(2026, 10, 9)).splitlines()
+    lines = plain(owner.digest(c, date(2026, 10, 9))).splitlines()
     health = owner.search_health(c.state, datetime(2026, 10, 9, 8, 0))
     assert "alo.bg: 0 ссылок, похоже, сайт поменял вёрстку" in health and "imot.bg: не запускался 3 дн." in health
     assert any(h.startswith("браузер: ") and "JSONDecodeError" in h for h in health)

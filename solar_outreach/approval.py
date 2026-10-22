@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from solar_outreach import (brief, drafts, followup, gmail_client as gmail, inbox, llm, notify, owner, rules, sheets,
                             site_queue)
 from solar_outreach.config import dry_run, load_config, single_run
+from solar_outreach.notify import b, code, esc, head, i, join, link, quote
 
 WAITING = ("на одобрении", "ждёт правки")
 PAUSED = inbox.PAUSED  # hard rules: nothing goes out until the owner decides
@@ -37,17 +38,16 @@ def make_draft(st: dict, did: str, test: bool) -> dict:
 
 
 def card(d: dict, st: dict) -> str:
-    head = [f"📝 {d['id']} · {d['id станции']} · {d['тип']} ({d['язык']})",
-            f"{st['заголовок'][:90]}",
-            f"{st['мощность кВт']} кВт · {st['цена EUR']} EUR · {st['EUR/кВт']} €/кВт · {st['регион']}",
-            f"Канал: {d['канал']} · кому: {d['кому']}", st["ссылка"]]
-    if st.get("примечание"):  # price band flags («только при хороших условиях», «подозрительно дешево»)
-        head.append(f"⚑ {st['примечание']}")
-    if "ТЕСТ" in d["тип"]:
-        head.append("ТЕСТ шаблона: этому продавцу писать не будем")
-    if d.get("нарушения правил"):
-        head.append(f"⚠️ Нарушения правил раздела 4: {d['нарушения правил']}")
-    return "\n".join(head) + f"\n\nТема: {d['тема']}\n\n{d['текст']}"
+    facts = (f"{notify.num(st['мощность кВт'])} кВт · {notify.num(st['цена EUR'])} € · {notify.num(st['EUR/кВт'])} €/кВт · "
+             f"{st['регион']}")
+    return join(head("📝", "Черновик", d["id станции"], d["id"], f"{d['тип']} ({d['язык']})"),
+                "\n".join([b(st["заголовок"][:90]), esc(facts), f"Канал: {esc(d['канал'])} · кому: {esc(d['кому'])}",
+                           link(st["ссылка"], "объявление")]),
+                # price band flags («только при хороших условиях», «подозрительно дешево»)
+                f"⚑ {esc(st['примечание'])}" if st.get("примечание") else "",
+                f"{b('ТЕСТ шаблона:')} этому продавцу писать не будем" if "ТЕСТ" in d["тип"] else "",
+                f"⚠️ {b('Нарушения правил раздела 4:')} {esc(d['нарушения правил'])}" if d.get("нарушения правил") else "",
+                (f"<b>Тема:</b> {esc(d['тема'])}\n" if d.get("тема") else "") + quote(d["текст"]))
 
 
 def queue_row(d: dict, st: dict) -> dict:
@@ -88,7 +88,8 @@ def gate(api, sid, queue: list, stations: dict) -> None:
         why = inbox.blocked(stations.get(r["id станции"], {}), black, refused)
         if why:
             r["статус"] = f"не отправлять: контакт {why}"
-            notify.try_send(f"⛔ {r['id станции']}: контакт {why}, в ручную очередь на отправку не ставлю.")
+            notify.try_send(join(head("⛔", "Не ставлю в очередь", r["id станции"]),
+                                 f"Контакт {esc(why)}, в ручную очередь на отправку не ставлю."))
 
 
 def cancel_followups(api, sid, by_id: dict, dialogs: list[dict]) -> dict:
@@ -125,10 +126,12 @@ ROUTINE = "уйдёт с ПК по расписанию (alo.bg/WhatsApp), са�
 
 
 def site_hint(d: dict, st: dict) -> None:
-    """«сайт» channel (alo.bg): link and plain text as two messages, so the text copies with one tap."""
+    """«сайт» channel (alo.bg): link and plain text as two messages, so the text copies with one tap.
+    The text is only escaped, no markup: what the owner copies is exactly the letter."""
     if d["канал"].startswith("сайт") and "ТЕСТ" not in d["тип"]:
-        notify.send(f"{d['id станции']}: открой объявление, вставь текст из следующего сообщения\n{st['ссылка']}")
-        notify.send(d["текст"])
+        notify.send(join(head("📋", "Отправь на сайте", d["id станции"], d["id"]),
+                         f"Открой {link(st['ссылка'], 'объявление')}, вставь текст из следующего сообщения."))
+        notify.send(esc(d["текст"]))
 
 
 def present(d: dict, st: dict, auto: bool, queue: list) -> None:
@@ -136,10 +139,11 @@ def present(d: dict, st: dict, auto: bool, queue: list) -> None:
     if auto and not d["нарушения правил"] and "ТЕСТ" not in d["тип"]:
         approve(d, st, queue)
         if d["канал"] != "email" and by_routine(d, st):
-            notify.send(f"📱 {d['id']} · {d['id станции']}: {ROUTINE}.")
+            notify.send(join(head("📱", "Одобрено автоматически", d["id станции"], d["id"]), f"Сообщение {ROUTINE}."))
         elif d["канал"] != "email":
-            notify.send(f"📱 {d['id']} · {d['id станции']}: отправь вручную, текст и ссылки во вкладке «Ручная очередь». "
-                        f"Отправишь сам: /sent {d['id станции']}")
+            notify.send(join(head("📱", "Отправь вручную", d["id станции"], d["id"]),
+                             "Текст и ссылки во вкладке «Ручная очередь».",
+                             f"Отправишь сам: {code('/sent ' + d['id станции'])}"))
             site_hint(d, st)
     else:
         d["tg сообщение"] = notify.send(card(d, st), notify.draft_buttons(d["id"]))
@@ -178,16 +182,19 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                 if action == "a" and newer:
                     d["статус"] = "заменено новым ответом"
                     notify.answer_callback(cq["id"], "Уже есть более новый ответ")
-                    notify.send(f"↩️ {did}: у {d['id станции']} уже есть более новый ответ, этот не отправляю.")
+                    notify.send(join(head("↩️", "Есть ответ новее", d["id станции"], did),
+                                     f"У {esc(d['id станции'])} уже есть более новый ответ, этот не отправляю."))
                 elif action == "a":
                     approve(d, st, queue)
                     approved += 1
                     notify.answer_callback(cq["id"], "Одобрено")
                     routine = "ТЕСТ" not in d["тип"] and by_routine(d, st)
-                    notify.send(f"✅ {did} одобрено." + (" Тест: никуда не отправляется." if "ТЕСТ" in d["тип"] else
-                                " Письмо уйдёт в ближайшем запуске." if d["канал"] == "email" and not dry_run()
-                                else f" Сообщение {ROUTINE}." if routine
-                                else f" Текст во вкладке «Ручная очередь». Отправишь сам: /sent {d['id станции']}"))
+                    notify.send(join(head("✅", "Одобрено", d["id станции"], did),
+                                     "Тест: никуда не отправляется." if "ТЕСТ" in d["тип"] else
+                                     "Письмо уйдёт в ближайшем запуске." if d["канал"] == "email" and not dry_run()
+                                     else f"Сообщение {ROUTINE}." if routine
+                                     else "Текст во вкладке «Ручная очередь».\n"
+                                          f"Отправишь сам: {code('/sent ' + d['id станции'])}"))
                     if not routine:
                         site_hint(d, st)
                 elif action == "s":
@@ -198,12 +205,13 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                 elif action == "e":
                     d["статус"], pending = "ждёт правки", did
                     notify.answer_callback(cq["id"])
-                    notify.send(f"✏️ {did}: пришли одним сообщением, что поменять.")
+                    notify.send(join(head("✏️", "Правка", d["id станции"], did), "Пришли одним сообщением, что поменять."))
             elif msg.get("text") and pending and not msg["text"].startswith("/"):
                 d, pending = by_id.get(pending), ""
                 st = stations.get(d["id станции"]) if d else None
                 if not d or not st:
-                    notify.send("Черновик для правки не нашёл в таблице, правку не применяю.")
+                    notify.send(join(head("⚠️", "Правка не применена"),
+                                     "Черновик для правки не нашёл в таблице, правку не применяю."))
                     continue
                 changed[d["id"]] = d
                 examples = [x["текст"] for x in by_id.values() if x["статус"] in ("одобрено", "отправлено")
@@ -213,8 +221,8 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                                       d["язык"], examples)
                 except llm.LLMError as e:
                     d["статус"] = "на одобрении"
-                    notify.send(f"⚠️ {d['id']}: не смог переписать ({e}). Черновик прежний, кнопки ниже.",
-                                notify.draft_buttons(d["id"]))
+                    notify.send(join(head("⚠️", "Не смог переписать", d["id станции"], d["id"]),
+                                     f"Ошибка: {i(e)}", "Черновик прежний, кнопки ниже."), notify.draft_buttons(d["id"]))
                     continue
                 sig = drafts.template(d["язык"])["signature"]
                 d.update({"тема": new.subject, "текст": new.body, "статус": "на одобрении", "правка владельца": msg["text"],
@@ -224,7 +232,8 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                 notify.send(owner.command(msg["text"], ctx, date.today()) if ctx else owner.HELP)
         except Exception as e:
             print(f"telegram: обновление {u['update_id']} упало: {type(e).__name__}: {str(e)[:200]}", flush=True)
-            notify.try_send(f"⚠️ Не смог выполнить ({type(e).__name__}: {str(e)[:100]}), пропускаю.")
+            notify.try_send(join(head("⚠️", "Не смог выполнить"),
+                                 f"Ошибка: {i(f'{type(e).__name__}: {str(e)[:100]}')}", "Пропускаю."))
     state["tg_offset"], state["pending_edit"] = offset, pending
     return changed, queue, approved
 
@@ -269,23 +278,29 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         st = stations.get(d["id станции"])
         if not st or "@" not in to:
             d["статус"] = "нет адреса"
-            notify.try_send(f"⛔ {d['id']}: нет адреса получателя («{to}»), не отправлено. Исправь «кому» и верни «одобрено».")
+            notify.try_send(join(head("⛔", "Нет адреса", d["id станции"], d["id"]),
+                                 f"Нет адреса получателя («{esc(to)}»), не отправлено.",
+                                 "Исправь «кому» и верни «одобрено»."))
             continue
         why = "в чёрном списке" if inbox.blacklisted(to, blacklist) else inbox.blocked(st, blacklist, refused)
         if why:
             d["статус"] = "в отказах" if "Отказ" in why else "чёрный список"
-            notify.try_send(f"⛔ {d['id']}: {to} {why} (просил не писать, продано или bounce), автоматически не отправляю.")
+            notify.try_send(join(head("⛔", "Не отправляю", d["id станции"], d["id"]),
+                                 f"{esc(to)} {esc(why)} (просил не писать, продано или bounce), "
+                                 "автоматически не отправляю."))
             continue
         # into a conversation the owner leads only a document request he approved, or one the director asked for
         owner_led = st["статус переписки"] == inbox.OWNER_LED and brief.cleared(d)
         if st["статус переписки"] in PAUSED and not owner_led:
             d["статус"] = "на паузе"
-            notify.try_send(f"⏸ {d['id']}: диалог {d['id станции']} на паузе ({st['статус переписки']}), "
-                            "не отправляю. Реши эскалацию, потом пришли правку или одобри заново.")
+            notify.try_send(join(head("⏸", "Диалог на паузе", d["id станции"], d["id"]),
+                                 f"Статус: {esc(st['статус переписки'])}, не отправляю.",
+                                 "Реши эскалацию, потом пришли правку или одобри заново."))
             continue
         if d["тип"].startswith("первое") and addrs(d) & sent_first:
             d["статус"] = "дубль адреса"
-            notify.try_send(f"⛔ {d['id']}: на {to} уже уходило первое письмо, второе не отправляю.")
+            notify.try_send(join(head("⛔", "Дубль адреса", d["id станции"], d["id"]),
+                                 f"На {esc(to)} уже уходило первое письмо, второе не отправляю."))
             continue
         first, outreach = d["тип"].startswith("первое"), d["тип"].startswith(("первое", "дожим"))
         if outreach and (left["run"] <= 0 or first and left["first"] <= 0):
@@ -308,12 +323,13 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
             d["статус"] = "ошибка отправки"  # not «одобрено»: after a timeout the letter may have gone out, never resend it
             if "_row" in d:
                 sheets.update(api, sid, "Черновики", [d])
-            notify.try_send(f"⚠️ {d['id']}: Gmail не принял письмо на {to} ({type(e).__name__}: {str(e)[:120]}). "
-                            "Проверь «кому» в «Черновиках» и верни «одобрено».")
+            notify.try_send(join(head("⚠️", "Gmail не принял письмо", d["id станции"], d["id"]),
+                                 f"Кому: {esc(to)}\nОшибка: {i(f'{type(e).__name__}: {str(e)[:120]}')}",
+                                 "Проверь «кому» в «Черновиках» и верни «одобрено»."))
             continue
         if res.get("dry_run"):
             d["отправлено"] = "DRY_RUN"
-            notify.try_send(f"🧪 {d['id']}: DRY_RUN, письмо на {to} не отправлено.")
+            notify.try_send(join(head("🧪", "DRY_RUN", d["id станции"], d["id"]), f"Письмо на {esc(to)} не отправлено."))
             continue
         left["run"] -= outreach
         left["first"] -= first
@@ -339,11 +355,11 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         except Exception as e:
             print(f"{d['id']}: письмо ушло, запись в таблицу отложена до конца прохода ({type(e).__name__})", flush=True)
         if not quiet:
-            notify.try_send(f"📤 {d['id']}: отправлено на {to}.")
+            notify.try_send(join(head("📤", "Отправлено", d["id станции"], d["id"]), f"Кому: {esc(to)}"))
     return out
 
 
-def bounce_stop(c: owner.Ctx, by_id: dict, today: date) -> None:
+def bounce_stop(c: "owner.Ctx", by_id: dict, today: date) -> None:
     """Bounce share over the last two days above the threshold -> auto-sending turns off (back to manual), urgent alert.
     Only email can bounce, so only emails count, and two days so a bounce just after midnight isn't n/0. Letters auto mode
     had already approved go back to the owner as cards instead of trickling out one per pass."""
@@ -359,9 +375,10 @@ def bounce_stop(c: owner.Ctx, by_id: dict, today: date) -> None:
         d["статус"] = "на одобрении"
         d["tg сообщение"] = notify.send(card(d, c.stations[d["id станции"]]), notify.draft_buttons(d["id"]))
         c.changed_drafts[d["id"]] = d
-    notify.urgent(f"🛑 Bounce за двое суток {bounces} на {sent} отправленных писем. Автоотправка выключена, режим manual"
-                  + (f", {len(held)} одобренных автоматически писем вернул тебе на кнопки" if held else "")
-                  + ". Адреса в «Чёрном списке». /auto on вернёт автоотправку.")
+    notify.urgent(join(head("🛑", "Автоотправка выключена", "режим manual"),
+                       f"Bounce за двое суток: {bounces} на {sent} отправленных писем. Адреса в «Чёрном списке».",
+                       f"{len(held)} одобренных автоматически писем вернул тебе на кнопки." if held else "",
+                       f"{code('/auto on')} вернёт автоотправку."))
 
 
 def main(test_n: int = 0, full: bool = True) -> int:
@@ -405,7 +422,7 @@ def main(test_n: int = 0, full: bool = True) -> int:
             if why:  # the same seller refused or is blacklisted under another listing: no letter, the owner decides
                 st["статус переписки"] = "не писать"
                 st["примечание"] = "; ".join(filter(None, [st.get("примечание", ""), f"контакт {why}"]))
-                notify.try_send(f"⛔ {st['id']}: контакт {why}, черновик не делаю.")
+                notify.try_send(join(head("⛔", "Черновик не делаю", st["id"]), f"Контакт {esc(why)}."))
                 continue
             d = make_draft(st, next_id(), st in test)
             if st not in test:
@@ -451,7 +468,8 @@ def main(test_n: int = 0, full: bool = True) -> int:
         settings["одобрено писем"] = int(settings.get("одобрено писем") or 0) + approved
         total = settings["одобрено писем"]
         if total >= cfg["limits"]["approvals_before_auto_offer"] > total - approved and not auto:
-            notify.send(f"{total} писем одобрено. Включить автоотправку? Пришли /auto on (выключить: /auto off).")
+            notify.send(join(head("🤖", "Автоотправка?"), f"{total} писем одобрено. Включить автоотправку?",
+                             f"Пришли {code('/auto on')} (выключить: {code('/auto off')})."))
     sheets.set_kv(api, sid, "Настройки", {k: v for k, v in settings.items() if settings_before.get(k) != v})
     if changed or new or queue:
         print(f"обновлений черновиков: {len(changed)}, новых черновиков: {len(new)}, в ручную очередь: {len(queue)}")

@@ -133,10 +133,28 @@ def replies_from(svc, sender: str, label: str) -> list[dict]:
     return out
 
 
-def mark_internal(svc, msg: dict, label: str) -> None:
-    """Handled, but left unread: the owner may want to read the director's letter himself."""
+def fresh_from(svc, sender: str, label: str) -> list[dict]:
+    """New letters from `sender` outside the internal label's threads (he wrote a new email instead of replying),
+    from the last 14 days, not handled yet. replies_from covers the labelled threads."""
     lab, done = label_ids(svc, label)
-    svc.messages().modify(userId="me", id=msg["id"], body={"addLabelIds": [lab, done]}).execute(num_retries=3)
+    q = f"from:({sender}) newer_than:14d -label:" + re.sub(r"[\s/]", "-", label + DONE_SUFFIX)
+    out = []
+    for m in svc.messages().list(userId="me", q=q, maxResults=50).execute().get("messages", []):
+        t = svc.threads().get(userId="me", id=m["threadId"], format="minimal").execute()
+        if any(lab in x.get("labelIds", []) for x in t.get("messages", [])):
+            continue
+        msg = svc.messages().get(userId="me", id=m["id"], format="full").execute()
+        if done not in msg.get("labelIds", []) and "SENT" not in msg.get("labelIds", []):
+            out.append(msg)
+    return out
+
+
+def mark_internal(svc, msg: dict, label: str, own_thread: bool = True) -> None:
+    """Handled, but left unread: the owner may want to read the director's letter himself. own_thread=False (a letter
+    about none of the briefs): only «seen», so the rest of that thread never comes in as brief replies."""
+    lab, done = label_ids(svc, label)
+    svc.messages().modify(userId="me", id=msg["id"], body={"addLabelIds": [lab, done] if own_thread else [done]}).execute(
+        num_retries=3)
 
 
 def last_in_threads(svc, thread_ids: list[str]) -> dict | None:

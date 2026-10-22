@@ -8,6 +8,7 @@ from datetime import date, datetime
 
 from solar_outreach import brief, inbox, notify, owner, sheets
 from solar_outreach.config import load_config, load_env, single_run
+from solar_outreach.notify import b, code, esc, head, i, join, link
 
 USAGE = """Сообщения «Ручной очереди» для alo.bg и WhatsApp: отправляет Claude в Chrome владельца по расписанию (Viber и другие сайты остаются людям).
 
@@ -55,12 +56,13 @@ def handed_out(api, sid, station_id: str, text: str | None) -> dict | None:
 
 
 def sent(api, sid, station_id: str, text: str | None = None) -> str:
-    """Only the message the routine sent is marked sent; the station's older unsent ones are superseded by it."""
+    """Only the message the routine sent is marked sent; the station's older unsent ones are superseded by it.
+    Returns plain text (printed for the routine); the owner's Telegram copy is HTML."""
     r = handed_out(api, sid, station_id, text)
     if not r:
-        msg = f"Нет такого сообщения для {station_id} в очереди: ничего не отмечено."
-        notify.try_send(f"⚠️ ПК: {msg} Проверь «Ручную очередь».")
-        return msg
+        notify.try_send(join(head("⚠️", "ПК: нет сообщения в очереди", station_id),
+                             "Ничего не отмечено. Проверь «Ручную очередь»."))
+        return f"Нет такого сообщения для {station_id} в очереди: ничего не отмечено."
     cfg = load_config()
     state = {k: x["значение"] for k, x in sheets.kv(api, sid, "_state").items()}
     settings = {k: x["значение"] for k, x in sheets.kv(api, sid, "Настройки").items()}
@@ -72,8 +74,8 @@ def sent(api, sid, station_id: str, text: str | None = None) -> str:
     sheets.update(api, sid, "Черновики", list(c.changed_drafts.values()))
     sheets.append(api, sid, "Диалоги", c.new_dialogs)
     sheets.update(api, sid, "Станции", [s for k, s in stations.items() if s != before[k]])
-    notify.try_send(f"{msg} (отправлено с ПК, {kind(r)})")  # the owner sees every message the routine sent
-    return msg
+    notify.try_send(join(msg, i(f"Отправлено с ПК, {kind(r)}.")))  # the owner sees every message the routine sent
+    return notify.plain(msg)
 
 
 def failed(api, sid, station_id: str, why: str) -> str:
@@ -85,8 +87,10 @@ def failed(api, sid, station_id: str, why: str) -> str:
         return f"Нет сообщения для {station_id} в очереди: ничего не отмечено."
     sheets.update(api, sid, "Ручная очередь", [{**r, "статус": f"не отправлено с ПК: {why}"} for r in rs])
     r = rs[-1]
-    notify.try_send(f"📱 {r['id станции']}: с ПК не отправилось ({why}). Отправь сам: {r.get('Viber') or r['ссылка на объявление']}"
-                    f", текст во вкладке «Ручная очередь», потом /sent {r['id станции']}.")
+    to = r.get("Viber") or r["ссылка на объявление"]  # viber:// is no web link: shown as code to copy
+    notify.try_send(join(head("📱", "С ПК не отправилось", r["id станции"]), f"{b('Причина:')} {esc(why)}",
+                         f"Отправь сам: {link(to, 'объявление') if to.startswith('http') else code(to)}, "
+                         f"текст во вкладке «Ручная очередь», потом {code('/sent ' + r['id станции'])}."))
     return f"{r['id станции']}: отмечено «не отправлено с ПК», владелец оповещён."
 
 

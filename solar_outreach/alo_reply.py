@@ -66,8 +66,8 @@ def note(api, sid, station_id: str, text: str, title: str) -> str:
     sheets.append(api, sid, "Отказы", c.new_refusals)
     sheets.append(api, sid, "Черновики", c.new_drafts)
     sheets.update(api, sid, "Станции", [s for k, s in stations.items() if s != before[k]])
-    notify.send(msg)
-    return msg
+    notify.send(msg)  # owner.note's reply is Telegram HTML; the routine prints the plain copy
+    return notify.plain(msg)
 
 
 if __name__ == "__main__":

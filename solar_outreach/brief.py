@@ -35,6 +35,7 @@ import pydantic
 from solar_outreach import (approval, documents as docs_, drafts, drive, gmail_client as gmail, inbox, llm, notify, rules,
                             sheets)
 from solar_outreach.config import load_config, load_env, single_run
+from solar_outreach.notify import code, esc, head, join, link, section  # notify.b: «b» is a Brief here
 from solar_outreach.documents import (ACCESS, ANNEX, BUILD_RIGHT, GRID, INVOICE, LAND, LEASE, PERMIT, POWER_SALE,
                                       PRODUCTION, PROTOCOL, UNREAD, USE_PERMIT)
 
@@ -560,16 +561,33 @@ def evaluate(st: dict, docs: list[dict], history: list[dict], mine: list[dict], 
     return out
 
 
+HEADINGS = ("Подтверждено документами:", "Только со слов продавца:", "Риски:", "До подписания:", "Вложения:")
+
+
+def brief_html(body: str) -> str:
+    """The email text of a brief as a Telegram card: the title and the section headings bold, the listing a link."""
+    out = []
+    for n, line in enumerate(body.split("\n")):
+        if n == 0 or line in HEADINGS:
+            out.append(notify.b(line))
+        elif line.startswith("Общее мнение. "):
+            out.append(f"{notify.b('Общее мнение.')} {esc(line[len('Общее мнение. '):])}")
+        elif line.startswith("Объявление: "):
+            out.append(link(line[len("Объявление: "):], "Объявление"))
+        else:
+            out.append(esc(line))
+    return "\n".join(out)
+
+
 def send_card(st: dict, r: dict, row_no: int, b: Brief, notes: list[str], sizes: dict[str, int]) -> int:
     """The brief as the director will get it, then the attachments and the buttons. The buttons name the row and the
     station; approve() also checks the tapped message is this row's card."""
-    body = r["текст"]
-    for i in range(0, len(body), notify.LIMIT - 100):
-        notify.send(("📋 Сводка для директора, черновик\n\n" if i == 0 else "") + body[i:i + notify.LIMIT - 100])
+    notify.send(join(head("📋", "Сводка для директора", st["id"], "черновик"), brief_html(r["текст"])))
     mb = sum(sizes.get(f, 0) for f in b.attach) / 2 ** 20
-    tail = (f"{st['id']}: тема «{r['тема']}», вложений {len(b.attach)} ({mb:.1f} МБ)."
-            + ("\n⚠️ Повторная проверка ещё видит:\n" + "\n".join(f"— {n}" for n in notes) if notes else "")
-            + "\n✅ уйдёт директору с этими документами, ⏭ не отправлять.")
+    tail = join(head("📎", "Отправить директору?", st["id"]),
+                f"{notify.b('Тема:')} {esc(r['тема'])}\n{notify.b('Вложений:')} {len(b.attach)} ({mb:.1f} МБ)",
+                section("⚠️ Повторная проверка ещё видит", [esc(x) for x in notes]),
+                "✅ уйдёт директору с этими документами, ⏭ — не отправлять.")
     return notify.send(tail, [[("✅ Директору", f"b:{row_no}:{st['id']}"), ("⏭ Не отправлять", f"bx:{row_no}:{st['id']}")]])
 
 
@@ -643,7 +661,8 @@ def write(api, sid, results: list, orphans: list[dict], sizes: dict, settings: d
         for k, res in results:
             st, r = stations[k], res["row"]
             if "error" in res:
-                notify.send(f"⚠️ {k}: документы проверить не смог ({res['error']}). Повторю, когда что-то изменится.")
+                notify.send(join(head("⚠️", "Документы не проверены", k), esc(res["error"]),
+                                 "Повторю, когда по станции что-то изменится."))
                 out.append(f"{k}: ошибка")
             elif "brief" in res:
                 update = any(x["id станции"] == k and x["статус"] == "отправлено" for x in rows)
@@ -664,13 +683,13 @@ def write(api, sid, results: list, orphans: list[dict], sizes: dict, settings: d
                     d["id"] = sheets.next_id([*by_id, *(x["id"] for x in new_drafts)])
                     r["запрос"] = d["id"]
                 card = d and (owner_led or not auto or d["нарушения правил"])
-                head = f"📋 {k} · директору пока рано:\n" + "\n".join(f"— {p}" for p, _ in parse_problems(r["проблемы"]))
-                tail = (f"\nДокументы не запрашиваю: {res['why']}." if not d else
-                        f"\nЗапрос недостающего {d['id']}: карточка ниже." if card else
-                        f"\nЗапрос недостающего {d['id']} одобрен автоматически.")
-                tail += f"\nНе вошло в запрос: {res['why']}" if d and res.get("why") else ""
+                ask = (f"Документы не запрашиваю: {esc(res['why'])}." if not d else
+                       f"📨 Запрос недостающего {code(d['id'])}: карточка ниже." if card else
+                       f"📨 Запрос недостающего {code(d['id'])} одобрен автоматически.")
                 if not res.get("quiet"):
-                    notify.send(head + tail)
+                    notify.send(join(head("📋", "Директору пока рано", k, st["заголовок"][:60]),
+                                     section("Чего не хватает", [esc(p) for p, _ in parse_problems(r["проблемы"])]), ask,
+                                     f"{notify.b('Не вошло в запрос:')} {esc(res['why'])}" if d and res.get("why") else ""))
                 if d:
                     approval.present(d, st, auto and not owner_led, queue)
                     new_drafts.append(d)
@@ -693,7 +712,7 @@ def tapped(api, sid, callback: str, message_id: int | None) -> tuple[dict | None
     r = next((x for x in rows if str(x["_row"]) == num), None)
     if not r or r["статус"] != "на одобрении" or station and r["id станции"] != station \
             or message_id and r["tg сообщение"] and str(r["tg сообщение"]) != str(message_id):
-        return None, rows, "Эта сводка уже обработана, устарела или карточка не от неё."
+        return None, rows, "↩️ Эта сводка уже обработана, устарела или карточка не от неё."
     return r, rows, ""
 
 
@@ -714,7 +733,7 @@ def approve(api, sid, callback: str, today: date, message_id: int | None = None)
     if problems:
         r["статус"] = "устарело"
         sheets.update(api, sid, "Сводки", [r])
-        return f"⛔ {r['id станции']}: сводку не отправил:\n" + "\n".join(f"— {p}" for p, _ in problems)
+        return join(head("⛔", "Сводку не отправил", r["id станции"]), section("Почему", [esc(p) for p, _ in problems]))
     files = {x["id файла"]: x["файл"] for x in reg}
     svc = drive.service()
     attach = [(files[f], drive.download(svc, f), drive.ALLOWED.get(Path(files[f]).suffix.lower(), "application/octet-stream"))
@@ -735,14 +754,15 @@ def approve(api, sid, callback: str, today: date, message_id: int | None = None)
     except gmail.NotSent as e:  # Gmail never got it: the card works again
         r["статус"] = "на одобрении"
         sheets.update(api, sid, "Сводки", [r])
-        return f"⚠️ {r['id станции']}: Gmail не принял ({e}), нажми ✅ ещё раз позже."
+        return join(head("⚠️", "Gmail не принял сводку", r["id станции"]), esc(e), "Нажми ✅ ещё раз позже.")
     if res.get("dry_run"):
         r["статус"] = "на одобрении"
         sheets.update(api, sid, "Сводки", [r])
-        return f"🧪 DRY_RUN: сводка {r['id станции']} директору не отправлена."
+        return head("🧪", "DRY_RUN: сводка директору не отправлена", r["id станции"])
     r.update({"статус": "отправлено", "отправлено": today.isoformat(), "тред Gmail": res["threadId"]})
     sheets.update(api, sid, "Сводки", [r])
-    return f"📨 Сводка {r['id станции']} отправлена директору ({to}), вложений {len(kept)}."
+    return join(head("📨", "Сводка отправлена директору", r["id станции"]), f"Кому: {esc(to)} · вложений: {len(kept)}"
+                + (f"\nНе влезли по размеру: {esc(', '.join(left))}" if left else ""))
 
 
 def skip(api, sid, callback: str, message_id: int | None = None) -> str:
@@ -751,19 +771,24 @@ def skip(api, sid, callback: str, message_id: int | None = None) -> str:
         return why
     r["статус"] = "пропущено"
     sheets.update(api, sid, "Сводки", [r])
-    return f"⏭ Сводку {r['id станции']} не отправляю. Новые документы по станции дадут новую."
+    return join(head("⏭", "Сводку не отправляю", r["id станции"]), "Новые документы по станции дадут новую.")
 
 
 def status(api, sid, station_id: str) -> str:
     """/brief S0xx: the station's latest evaluation."""
     r = next((x for x in reversed(sheets.read(api, sid, "Сводки")) if x["id станции"] == station_id.upper()), None)
     if not r:
-        return f"{station_id.upper()}: сводку ещё не проверяли (нет документов или не кандидат)."
+        return join(head("📋", "Сводка", station_id.upper()),
+                    "Ещё не проверяли: в папке станции нет документов или она не кандидат.")
     if r["итог"] == "готово":
-        return f"📋 {r['id станции']} {r['дата']}: готово, сводка {r['статус']}" + (f" {r['отправлено']}" if r["отправлено"] else "")
-    return (f"📋 {r['id станции']} {r['дата']}: директору пока рано\n"
-            + "\n".join(f"— {p}" + (f" (запросить: {q})" if q else "") for p, q in parse_problems(r["проблемы"]))
-            + (f"\nЗапрос: {r['запрос']}" if r["запрос"] else ""))
+        return join(head("📋", "Сводка готова", r["id станции"], r["дата"]),
+                    f"Статус: {notify.b(r['статус'])}" + (f", {esc(r['отправлено'])}" if r["отправлено"] else ""))
+    if r["итог"] == ERROR:
+        return join(head("⚠️", "Проверка не удалась", r["id станции"], r["дата"]), esc(r["проблемы"]))
+    return join(head("📋", "Директору пока рано", r["id станции"], r["дата"]),
+                section("Чего не хватает", [esc(p) + (f" → <i>запросить: {esc(q)}</i>" if q else "")
+                                            for p, q in parse_problems(r["проблемы"])]),
+                f"{notify.b('Запрос:')} {esc(r['запрос'])}" if r["запрос"] else "")
 
 
 if __name__ == "__main__":

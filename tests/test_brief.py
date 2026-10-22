@@ -330,7 +330,7 @@ def test_a_broken_answer_is_recorded_once_not_retried_every_hour(world):
     brief.run(today=TODAY)
     brief.run(today=TODAY)
     assert [r["итог"] for r in sheet.tabs["Сводки"]] == [brief.ERROR] and calls.count("Brief") == 1
-    assert sum("проверить не смог" in t for t, _ in tg) == 1
+    assert sum("Документы не проверены" in t for t, _ in tg) == 1
 
 
 def test_one_broken_file_never_stops_the_pass(monkeypatch, sheet):
@@ -427,18 +427,21 @@ def answered(world, monkeypatch):
     sheet.add("Сводки", {"id станции": "S500", "итог": "готово", "статус": "отправлено", "тема": "S500 — ФЭС: сводка",
                          "текст": "сводка", "тред Gmail": "t-dir"})
     sheet.add("Настройки", {"параметр": "approval_mode", "значение": "auto"})
-    inbox_, marked = [letter("Не хватает анекса к договору, запросите.")], []
+    inbox_, fresh, marked = [letter("Не хватает анекса к договору, запросите.")], [], []
     monkeypatch.setattr(gmail_client, "replies_from", lambda svc, sender, label: [m for m in inbox_ if m["id"] not in marked])
-    monkeypatch.setattr(gmail_client, "mark_internal", lambda svc, m, label: marked.append(m["id"]))
+    monkeypatch.setattr(gmail_client, "fresh_from", lambda svc, sender, label: [m for m in fresh if m["id"] not in marked])
+    monkeypatch.setattr(gmail_client, "mark_internal", lambda svc, m, label, own_thread=True: marked.append(
+        m["id"] if own_thread else f"seen:{m['id']}"))
+    SAID["fresh"] = fresh
     monkeypatch.setattr(gmail_client, "send_files", lambda svc, to, subject, body, files, label="", thread_id="",
                         in_reply_to="": sent.append((to, subject, body, [f[0] for f in files], thread_id, in_reply_to))
                         or {"id": "m", "threadId": thread_id})
     return sheet, tg, sent, calls, marked
 
 
-def reply(verdict, documents=(), for_owner=()):
-    return director.DirectorReply(summary_ru="Директор ответил.", verdict=verdict, documents=list(documents), questions=[],
-                                  for_owner=list(for_owner))
+def reply(verdict, documents=(), for_owner=(), station=""):
+    return director.DirectorReply(station=station, summary_ru="Директор ответил.", verdict=verdict,
+                                  documents=list(documents), questions=[], for_owner=list(for_owner))
 
 
 def test_director_asks_for_documents_and_the_system_requests_them_itself(answered):
@@ -451,6 +454,7 @@ def test_director_asks_for_documents_and_the_system_requests_them_itself(answere
     [(to, subject, body, files, thread, reply_to)] = sent
     assert to == "director@example.com" and subject.startswith("Re: ") and thread == "t-dir" and reply_to == "<m1@x>"
     assert "Запросил у продавца:\n1. анекс к договору №111" in body and "Передано" in body   # price stays with the owner
+    assert any("Сделал сам" in t and "<blockquote>" in t for t, _ in tg)        # his letter quoted in the notice
     row = sheet.tabs["Сводки"][0]
     assert "письмо m1" in row["ответ директора"] and json.loads(row["ждёт директор"])["reply_to"] == "<m1@x>"
     assert "директор ←" in sheet.tabs["Станции"][0]["примечание"] and marked == ["m1"]
@@ -503,3 +507,44 @@ def test_documents_that_arrive_later_go_to_the_director_in_his_thread(answered):
     assert director.deliver(None, "test", TODAY) == "директору досылать нечего" and len(sent) == n
     assert director.deliver(None, "test", date(2026, 12, 1)) == "директору досылать нечего"   # closed after 30 days
     assert sheet.tabs["Сводки"][0]["ждёт директор"] == ""
+
+
+def letter_in(thread, text, msg_id, subject="Вопрос"):
+    m = letter(text, msg_id)
+    m["threadId"] = thread
+    m["payload"]["headers"].append({"name": "Subject", "value": subject})
+    return m
+
+
+def test_a_new_letter_about_a_briefed_object_is_handled_in_its_own_thread(answered):
+    sheet, tg, sent, calls, marked = answered
+    marked.append("m1")                                   # the reply in the brief's thread is already handled
+    SAID["fresh"].append(letter_in("t-new", "По S500: запросите платёжки.", "m2", "S500 платёжки"))
+    SAID["reply"] = reply("нужно больше данных", ["платёжные поручения"])
+    director.replies(None, "test", None, TODAY)
+    row = sheet.tabs["Сводки"][0]
+    assert row["тред Gmail"] == "t-dir,t-new" and "письмо m2" in row["ответ директора"]
+    assert sent[-1][4] == "t-new" and sent[-1][1] == "Re: S500 платёжки" and sent[-1][5] == "<m2@x>"
+    assert json.loads(row["ждёт директор"])["thread"] == "t-new" and "m2" in marked
+
+
+def test_a_personal_letter_is_only_marked_seen(answered):
+    sheet, tg, sent, calls, marked = answered
+    marked.append("m1")
+    SAID["fresh"].append(letter_in("t-home", "Как дела, когда приедешь?", "m3", "Привет"))
+    SAID["reply"] = reply("без решения", station="")
+    n = len(tg)
+    director.replies(None, "test", None, TODAY)
+    assert marked[-1] == "seen:m3" and len(tg) == n and sent == []
+    assert "письмо m3" not in sheet.tabs["Сводки"][0]["ответ директора"]
+
+
+def test_telegram_cards_are_valid_markup_with_escaped_values():
+    """Every value from a seller, a listing or a model is escaped: a «<» in it never breaks a card."""
+    import re
+    body = "S500 — ФЭС <1 MW> & Co\n\nОбъявление: https://x.example/?a=1&b=2\n\nПроект <b>.\n\nРиски:\n— срок < 60 дн."
+    card = brief.brief_html(body)
+    assert "<b>S500 — ФЭС &lt;1 MW&gt; &amp; Co</b>" in card and "<b>Риски:</b>" in card
+    assert '<a href="https://x.example/?a=1&amp;b=2">Объявление</a>' in card and "&lt;b&gt;" in card
+    tags = re.findall(r"</?(\w+)", card)
+    assert set(tags) <= {"b", "a", "i", "code", "blockquote"} and tags.count("b") % 2 == 0

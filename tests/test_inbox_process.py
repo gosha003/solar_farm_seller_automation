@@ -221,3 +221,12 @@ def test_an_llm_outage_is_reported_in_the_stats(box):
     msgs.append(mail("m1", "Работи от 2020."))
     answers["Работи от 2020."] = llm.LLMUnavailable("API: OverloadedError")
     assert inbox.process(None, None, None)["LLM недоступен"] == "API: OverloadedError" and done == []
+
+
+def test_seller_text_in_an_alert_is_escaped_and_the_thread_is_a_link(box):
+    sheet, msgs, done, tg, answers = box
+    msgs.append(mail("m1", "Цена <b>5 000</b> & торг"))
+    answers["Цена <b>5 000</b> & торг"] = llm.LLMError("bad <json>")
+    inbox.process(None, None, None)
+    assert "Цена &lt;b&gt;5 000&lt;/b&gt; &amp; торг" in tg[0] and "bad &lt;json&gt;" in tg[0] and "🚨" in tg[0]
+    assert '<a href="https://mail.google.com/mail/u/0/#all/t1">тред в Gmail</a>' in tg[0]

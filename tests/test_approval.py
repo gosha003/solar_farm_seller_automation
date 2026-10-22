@@ -60,7 +60,14 @@ def test_edit_flow_rewrites_and_checks_rules(monkeypatch, tg):
     out = changed["D003"]
     assert out["статус"] == "на одобрении" and out["текст"].startswith("Добър ден")
     assert "сумма/цена покупки/бюджет" in out["нарушения правил"]       # the owner sees a warning
-    assert "⚠️ Нарушения правил" in tg[-1]
+    assert "⚠️ <b>Нарушения правил" in tg[-1]
+
+
+def test_card_escapes_listing_text_and_links_the_listing():
+    d = approval.make_draft(ST, "D006", test=False)
+    out = approval.card(d, {**ST, "заголовок": "1.5MW <ново> & евтино"})
+    assert "&lt;ново&gt; &amp; евтино" in out and '<a href="https://www.alo.bg/x-10983881">' in out
+    assert approval.notify.plain(out).endswith(d["текст"].strip())       # the letter itself is there, unchanged
 
 
 def test_paused_dialog_is_not_sent(monkeypatch, tg):

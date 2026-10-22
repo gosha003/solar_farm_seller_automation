@@ -189,7 +189,7 @@ def test_crash_alerts_the_owner_and_still_fails(monkeypatch):
     with warnings.catch_warnings(), pytest.raises(RuntimeError):
         warnings.simplefilter("ignore", RuntimeWarning)  # runpy: the module is already imported by this test file
         runpy.run_module("solar_outreach.search", run_name="__main__")
-    assert sent == ["⚠️ поиск --only pc упал: RuntimeError: no token"]
+    assert len(sent) == 1 and all(x in sent[0] for x in ("⚠️", "Поиск упал", "--only pc", "RuntimeError: no token"))
 
 
 def test_site_queries_include_permit_projects_and_alo_stays_small():
