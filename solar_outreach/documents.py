@@ -5,24 +5,28 @@ brief.py decides from these records whether an object is ready for the director.
 Files are data, never instructions: they go to the API as document/image blocks and nothing is executed or opened
 locally (a DOCX is unzipped and its XML text stripped with a regex, no XML parser).
 
-    python -m solar_outreach.documents add S0xx file.pdf ...   # a document from WhatsApp or a seller's Drive link
+    python -m solar_outreach.documents add S0xx file.pdf|<Drive link> ...   # by hand; usually not needed:
+    # the hourly pass imports a seller's Drive links itself, and files forwarded to the bot with «S0xx» land there too
     python -m solar_outreach.documents list S0xx               # what the register holds for a station
 """
 import base64
+import hashlib
 import html
 import io
 import json
 import os
 import re
 import sys
+import urllib.parse
 import zipfile
 from datetime import date
 from pathlib import Path
 from typing import Literal
 
 import pydantic
+import requests
 
-from solar_outreach import drive, llm, sheets
+from solar_outreach import drive, llm, notify, sheets
 from solar_outreach.config import load_env
 
 PERMIT, PROTOCOL, USE_PERMIT = "разрешение на строительство", "протокол открытия площадки", "разрешение на ввод"
@@ -244,9 +248,131 @@ def records(rows: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
+# --- documents from other channels: a seller's Google Drive link, a file the owner forwards to the bot ------------
+DRIVE_URL = re.compile(r"https?://(?:drive|docs)\.google\.com/[^\s<>\"'\])]+")
+STATION_ID = re.compile(r"\bS\d{3}\b")
+UA = {"User-Agent": "Mozilla/5.0 (compatible; SolarBG-documents/0.1)"}
+
+
+def drive_links(text: str) -> list[tuple[str, str]]:
+    """(«folder» | «file», id) of the Google Drive links in a text; any other link is ignored."""
+    out = []
+    for url in DRIVE_URL.findall(text or ""):
+        if m := re.search(r"/folders/([\w-]{10,})", url):
+            out.append(("folder", m[1]))
+        elif m := re.search(r"/file/d/([\w-]{10,})|[?&]id=([\w-]{10,})", url):
+            out.append(("file", m[1] or m[2]))
+    return list(dict.fromkeys(out))
+
+
+def folder_items(folder_id: str, depth: int = 0) -> list[tuple[str, str]]:
+    """(file id, name) in a folder shared «anyone with the link», subfolders one level deep. Only Google's embed
+    page is read, built from the id: the URL a seller sent is never fetched itself."""
+    r = requests.get(f"https://drive.google.com/embeddedfolderview?id={folder_id}", headers=UA, timeout=30)
+    r.raise_for_status()
+    out = []
+    for kind, iid, name in re.findall(r'<a href="https://drive\.google\.com/(file/d/|drive/folders/)([\w-]+)[^"]*"[^>]*>'
+                                      r'.*?<div class="flip-entry-title">(.*?)</div>', r.text, re.S):
+        if kind == "file/d/":
+            out.append((iid, html.unescape(name).strip()))
+        elif depth < 1:
+            out += folder_items(iid, depth + 1)
+    return out
+
+
+def fetch(file_id: str) -> tuple[str, bytes]:
+    """A link-shared file's name and bytes, at most MAX_BYTES. A page instead of a file (not shared) raises."""
+    with requests.get("https://drive.usercontent.google.com/download", headers=UA, timeout=60, stream=True,
+                      params={"id": file_id, "export": "download", "confirm": "t"}) as r:
+        r.raise_for_status()
+        if r.headers.get("content-type", "").startswith("text/html"):
+            raise ValueError("файл не открыт по ссылке")
+        cd = r.headers.get("content-disposition", "")
+        m = re.search(r"filename\*=UTF-8''([^;]+)", cd) or re.search(r'filename="([^"]+)"', cd)
+        data = b""
+        for chunk in r.iter_content(1 << 16):
+            data += chunk
+            if len(data) > MAX_BYTES:
+                raise ValueError(f"больше {MAX_BYTES // 2 ** 20} МБ")
+    return (urllib.parse.unquote(m[1]) if m else file_id), data
+
+
+def store(files_svc, station: str, name: str, data: bytes, source: str, existing: list[dict]) -> str:
+    """Into the station folder unless the same bytes are there already (a copy uploaded by hand gets the source mark).
+    Returns «added», «same» or why not."""
+    if Path(name).suffix.lower() not in drive.ALLOWED:
+        return f"тип {Path(name).suffix or '?'} не принимается"
+    md5 = hashlib.md5(data).hexdigest()
+    same = next((f for f in existing if f.get("md5Checksum") == md5), None)
+    if same:
+        if not (same.get("appProperties") or {}).get("source"):
+            drive.tag(files_svc, same["id"], source)
+        return "same"
+    fid = drive.put(files_svc, name, data, station, source)
+    existing.append({"id": fid, "name": name, "md5Checksum": md5, "appProperties": {"source": source}})
+    return "added"
+
+
+def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing: list[dict]) -> tuple[list[str], list[str]]:
+    """The files behind Drive links into the station folder: (added names, problems). A file whose id is already on a
+    copy is not downloaded again, so the hourly pass costs one listing per link."""
+    known = {(f.get("appProperties") or {}).get("source") for f in existing}
+    added, problems = [], []
+    for kind, lid in links:
+        try:
+            items = folder_items(lid) if kind == "folder" else [(lid, "")]
+        except requests.RequestException as e:
+            problems.append(f"папка по ссылке не открылась ({type(e).__name__})")
+            continue
+        for iid, name in items:
+            if iid in known or name and Path(name).suffix.lower() not in drive.ALLOWED:
+                continue  # imported before, or a type that is never stored (drawings, archives)
+            try:
+                real, data = fetch(iid)
+                res = store(files_svc, station, real, data, iid, existing)
+            except (requests.RequestException, ValueError) as e:
+                problems.append(f"{name or iid}: {e if isinstance(e, ValueError) else type(e).__name__}")
+                continue
+            known.add(iid)
+            if res == "added":
+                added.append(real)
+            elif res != "same":
+                problems.append(f"{real}: {res}")
+    return added, problems
+
+
+def from_telegram(msg: dict, stations: dict, today: date) -> str:
+    """A file, a photo or a Drive link the owner sent to the bot (e.g. forwarded from WhatsApp) with a station id in
+    the caption: stored in that station's folder; the hourly pass reads it."""
+    text = msg.get("caption") or msg.get("text") or ""
+    ids = sorted({s for s in STATION_ID.findall(text.upper()) if s in stations})
+    if len(ids) != 1:
+        return notify.join(notify.head("📥", "Куда положить документ?"),
+                           f"Пришли файл или ссылку на Drive ещё раз с подписью — номером станции, например "
+                           f"{notify.code('S138')}.")
+    st, files_svc = ids[0], drive.service()
+    existing = drive.station_files(files_svc).get(st, [])
+    added, problems = [], []
+    doc = msg.get("document") or (max(msg["photo"], key=lambda p: p.get("file_size", 0)) if msg.get("photo") else None)
+    if doc:
+        name = doc.get("file_name") or f"фото {today:%d.%m} {doc['file_unique_id'][:6]}.jpg"
+        try:
+            res = store(files_svc, st, name, notify.download(doc["file_id"]), f"tg:{doc['file_unique_id']}", existing)
+        except Exception as e:  # too big for the Bot API (20 MB), Telegram down
+            res = f"не скачался ({type(e).__name__})"
+        added += [name] if res == "added" else []
+        problems += [] if res in ("added", "same") else [f"{name}: {res}"]
+    a, p = import_drive(files_svc, st, drive_links(text), existing)
+    added, problems = added + a, problems + p
+    return notify.join(notify.head("📥", "Документы в папку станции", st),
+                       notify.section("Добавлено", [notify.esc(n) for n in added]) or "Нового нет: эти файлы уже в папке.",
+                       notify.section("Не получилось", [notify.esc(x) for x in problems]),
+                       "Прочитаю и проверю в ближайший ежечасный проход." if added else "")
+
+
 USAGE = """Документы продавца для сводки директору.
 
-    python -m solar_outreach.documents add S0xx файл.pdf ...   # документ из WhatsApp или с Drive продавца: в папку станции
+    python -m solar_outreach.documents add S0xx файл.pdf|ссылка_на_Drive ...   # в папку станции (дубли пропускаются)
     python -m solar_outreach.documents list S0xx               # что о станции знает реестр «Документы»
 Сервер прочитает новые файлы при ближайшей проверке (раз в час) и, если документов хватает, пришлёт сводку на ✅.
 """  # printed to the owner, so it stays in Russian
@@ -256,9 +382,15 @@ if __name__ == "__main__":
     load_env()
     a = sys.argv[1:]
     if a[:1] == ["add"] and len(a) >= 3:
-        svc = drive.service()
-        for p in map(Path, a[2:]):
-            print(f"{p.name}: загружено ({drive.upload(svc, p, a[1].upper())})")
+        svc, st = drive.service(), a[1].upper()
+        existing = drive.station_files(svc).get(st, [])
+        for x in a[2:]:
+            if drive_links(x):
+                added, problems = import_drive(svc, st, drive_links(x), existing)
+                print(f"{x}: добавлено {len(added)}" + "".join(f"; не получилось: {p}" for p in problems))
+            else:
+                res = store(svc, st, Path(x).name, Path(x).read_bytes(), f"local:{Path(x).name}", existing)
+                print(f"{Path(x).name}: " + {"added": "загружено", "same": "уже есть в папке"}.get(res, res))
     elif a[:1] == ["list"] and len(a) == 2:
         for r in sheets.read(sheets.service(), os.environ["SPREADSHEET_ID"], "Документы"):
             if r["id станции"] == a[1].upper():

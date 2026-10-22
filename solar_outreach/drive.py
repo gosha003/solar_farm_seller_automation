@@ -67,7 +67,8 @@ def station_files(files) -> dict[str, list[dict]]:
     folders = {f["id"]: f["name"] for f in listing(f"'{root}' in parents and mimeType = '{FOLDER}' and trashed = false",
                                                    "id,name")}
     out: dict[str, list[dict]] = {}
-    for f in listing(f"mimeType != '{FOLDER}' and trashed = false", "id,name,size,webViewLink,parents"):
+    for f in listing(f"mimeType != '{FOLDER}' and trashed = false",
+                     "id,name,size,webViewLink,parents,md5Checksum,appProperties"):
         station = next((folders[p] for p in f.get("parents", []) if p in folders), None)
         if station:
             out.setdefault(station, []).append(f)
@@ -85,9 +86,21 @@ def download(files, file_id: str) -> bytes:
 
 def upload(files, path: Path, station_id: str) -> str:
     """A document from another channel into the station folder. Same type allowlist as attachments."""
-    ext = path.suffix.lower()
+    return put(files, path.name, path.read_bytes(), station_id)
+
+
+def put(files, name: str, data: bytes, station_id: str, source: str = "") -> str:
+    """Bytes into the station folder. source (a seller's Drive file id, a Telegram file id) is kept in appProperties,
+    so the same file is never fetched or stored twice."""
+    ext = Path(name).suffix.lower()
     if ext not in ALLOWED:
-        raise ValueError(f"{path.name}: тип {ext or '?'} не принимается (только {', '.join(ALLOWED)})")
+        raise ValueError(f"{name}: тип {ext or '?'} не принимается (только {', '.join(ALLOWED)})")
     dest = folder(files, station_id, folder(files, ROOT))
-    media = MediaInMemoryUpload(path.read_bytes(), mimetype=ALLOWED[ext])
-    return files.create(body={"name": path.name, "parents": [dest]}, media_body=media, fields="id").execute()["id"]
+    body = {"name": name, "parents": [dest], **({"appProperties": {"source": source}} if source else {})}
+    media = MediaInMemoryUpload(data, mimetype=ALLOWED[ext])
+    return files.create(body=body, media_body=media, fields="id").execute()["id"]
+
+
+def tag(files, file_id: str, source: str) -> None:
+    """An existing copy of a source file (same bytes, uploaded by hand): remember the source on it."""
+    files.update(fileId=file_id, body={"appProperties": {"source": source}}).execute()

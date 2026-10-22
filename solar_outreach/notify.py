@@ -160,6 +160,17 @@ def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> int:
     return _send(parts[-1], buttons)
 
 
+def download(file_id: str) -> bytes:
+    """A file the owner sent to the bot (the Bot API serves up to 20 MB). The token is in the URL: errors name the type only."""
+    path = call("getFile", file_id=file_id)["file_path"]
+    try:
+        r = requests.get(f"https://api.telegram.org/file/bot{os.environ['TELEGRAM_BOT_TOKEN']}/{path}", timeout=60)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise TelegramError(f"download: {type(e).__name__}") from None
+    return r.content
+
+
 def try_send(text: str) -> None:
     """A notice whose loss is harmless (📤 sent, ⛔ skipped): a Telegram blip must not abort a pass after letters went out."""
     try:

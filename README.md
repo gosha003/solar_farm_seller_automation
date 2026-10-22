@@ -85,8 +85,12 @@ flowchart LR
 Once a seller sends documents, the system decides from the documents themselves whether the object is ready for
 official negotiations, and only then writes a brief for the company director.
 
-- **Reading.** Every file in a station's Drive folder (email attachments land there automatically; WhatsApp files or a
-  seller's shared folder are added with `documents add`) is read once by Claude as a document or image block and stored
+- **Collecting.** Email attachments land in the station's Drive folder automatically. Every hour the system also looks
+  for Google Drive links the seller sent (in his letters in the station's own threads, in logged WhatsApp messages) and
+  copies the shared files over; a file it already has (same source or the same bytes) is never fetched twice. WhatsApp
+  has no API for a personal account, so a document from WhatsApp is forwarded to the Telegram bot with the station id
+  as the caption («S138»), and the bot stores it.
+- **Reading.** Every file in a station's Drive folder is read once by Claude as a document or image block and stored
   as typed records in the «Документы» tab: type, number, date, holder, plots, capacity, entry into force, deadlines,
   whether the grid fee is proven paid, whether the document is signed.
 - **Strict gate, in code.** A ready-to-build project needs a building permit that is still in force (three years to start
@@ -132,7 +136,9 @@ not left to the prompt:
   sending back to manual and returns already approved letters to the owner.
 - A follow-up drafted before the seller answered is cancelled, on every channel.
 - Attachments are stored in Drive (PDF, images and DOCX only) and never opened or executed locally; Claude reads them as
-  data, and instructions inside them are ignored. Links in emails are never followed.
+  data, and instructions inside them are ignored. Links in emails are never followed, with one narrow exception: a
+  Google Drive file or folder id a seller shares is read through Google's own download and embed endpoints built from
+  the id (the seller's URL itself is never opened), only PDF, image and DOCX files, size-capped.
 
 ## Tech stack
 
@@ -202,7 +208,7 @@ python -m solar_outreach.search --import found.json   # listings the browser rou
 python -m solar_outreach.alo_reply pending     # alo.bg replies to read in the account
 python -m solar_outreach.site_queue pending    # alo.bg / WhatsApp messages to send
 python -m solar_outreach.site_queue log S0xx out WhatsApp @msg.txt   # a message read/sent by hand: dialog log + note
-python -m solar_outreach.documents add S0xx file.pdf ...       # documents from WhatsApp or a seller's shared folder
+python -m solar_outreach.documents add S0xx file.pdf|<Drive link>   # by hand, rarely needed (see Collecting)
 python -m solar_outreach.brief S0xx                            # check one station now (the VM does all of them hourly)
 ```
 

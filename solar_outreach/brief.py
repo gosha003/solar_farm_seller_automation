@@ -591,20 +591,54 @@ def send_card(st: dict, r: dict, row_no: int, b: Brief, notes: list[str], sizes:
     return notify.send(tail, [[("✅ Директору", f"b:{row_no}:{st['id']}"), ("⏭ Не отправлять", f"bx:{row_no}:{st['id']}")]])
 
 
+def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files: dict, files_svc) -> int:
+    """Google Drive links a seller sent (in his letters in the station's own Gmail threads, in a logged WhatsApp
+    message, in the station note) bring their files into the station folder, for every station in a live deal.
+    The system's own Drive links (saved attachments) are skipped. Returns how many files were added."""
+    ours = {f["id"] for fs in files.values() for f in fs}
+    gsvc, total = None, 0
+    for k, st in stations.items():
+        if st["статус переписки"] in CLOSED or not (st["отбор"] == "кандидат" or "исключение владельца" in st["отбор"]):
+            continue
+        history = [r for r in dialogs if r["id станции"] == k]
+        texts = [r["краткое содержание"] for r in history] + [st.get("примечание", "")]
+        for tid in threads_of(history, [d for d in drafts_rows if d["id станции"] == k]):
+            try:
+                gsvc = gsvc or gmail.service()
+                texts += gmail.thread_texts(gsvc, tid)
+            except Exception as e:  # one unreadable thread never stops the pass
+                print(f"brief: Gmail {k}: {type(e).__name__}", flush=True)
+        links = [x for x in docs_.drive_links("\n".join(texts)) if x[1] not in ours]
+        if not links:
+            continue
+        added, problems = docs_.import_drive(files_svc, k, links, files.setdefault(k, []))
+        for p in problems:
+            print(f"brief: Drive {k}: {p}", flush=True)
+        if added:
+            total += len(added)
+            notify.send(join(head("📥", "Документы с Drive продавца", k, st["заголовок"][:60]),
+                             section(f"Добавлено в папку станции: {len(added)}", [esc(n) for n in added[:20]]
+                                     + ([f"… и ещё {len(added) - 20}"] if len(added) > 20 else [])),
+                             "Прочитаю и проверю в этом же проходе."))
+    return total
+
+
 def run(only: str = "", today: date | None = None) -> str:
     cfg, today = load_config(), today or date.today()
     api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
     sheets.ensure_tabs(api, sid)
     files_svc = drive.service()
     stations = {s["id"]: s for s in sheets.read(api, sid, "Станции")}
+    dialogs, drafts_rows = sheets.read(api, sid, "Диалоги"), sheets.read(api, sid, "Черновики")
     files = drive.station_files(files_svc)
+    if harvest({k: v for k, v in stations.items() if not only or k == only.upper()}, dialogs, drafts_rows, files, files_svc):
+        files = drive.station_files(files_svc)
     live = {k for k, st in stations.items() if candidate(st, files.get(k))}
     cands = sorted(k for k in live if not only or k == only.upper())
     if only and not cands:
         return f"{only}: не кандидат для сводки (статус, отбор или нет документов)"
     docs_.refresh(api, sid, files, set(cands), files_svc, today)
     docs = docs_.records(sheets.read(api, sid, "Документы"))
-    dialogs, drafts_rows = sheets.read(api, sid, "Диалоги"), sheets.read(api, sid, "Черновики")
     briefs = sheets.read(api, sid, "Сводки")
     settings = {k: r["значение"] for k, r in sheets.kv(api, sid, "Настройки").items()}
     paused = settings.get("пауза") == "да"

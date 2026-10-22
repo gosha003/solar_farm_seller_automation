@@ -172,6 +172,19 @@ def last_in_threads(svc, thread_ids: list[str]) -> dict | None:
     return best
 
 
+def thread_texts(svc, thread_id: str) -> list[str]:
+    """The raw text of every part of the seller's letters in one of our SolarBG threads (HTML too, so a link behind
+    a word is kept). For finding Google Drive links; nothing here is answered or followed."""
+    cfg = load_config()
+    label, _ = label_ids(svc, cfg["gmail"]["label"])
+    owner, out = cfg["owner"]["email"].lower(), []
+    for m in (_thread(svc, thread_id, label) or {}).get("messages", []):
+        if parseaddr(header(m, "From"))[1].lower() != owner and "SENT" not in m.get("labelIds", []):
+            out += [decode(base64.urlsafe_b64decode(p["body"]["data"] + "=="), p) for p in _parts(m.get("payload", {}))
+                    if p.get("body", {}).get("data") and p.get("mimeType", "").startswith("text/")]
+    return out
+
+
 def _thread(svc, thread_id: str, label: str) -> dict | None:
     """Read a thread only if it holds our letter labelled SolarBG. Otherwise None: other mail is not ours."""
     t = svc.threads().get(userId="me", id=thread_id, format="full").execute()
