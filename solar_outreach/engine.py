@@ -3,8 +3,8 @@
     python -m solar_outreach.engine            # one pass (cron, debugging)
     python -m solar_outreach.engine --daemon   # VM: runs forever, answers in Telegram within seconds (systemd: solar-bot)
 
-Pass: inbox (classify, extract facts, escalate) -> Telegram buttons and commands, drafts and follow-ups,
-sending within limits, digest. Search is a separate timed process, `python -m solar_outreach.search`:
+Pass: inbox (classify, extract facts, escalate) -> the director's replies to briefs -> Telegram buttons and commands,
+drafts and follow-ups, sending within limits, digest. Search is a separate timed process, `python -m solar_outreach.search`:
 it is slow (polite pauses between site requests).
 """
 import os
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import requests
 
-from solar_outreach import approval, budget, gmail_client, inbox, notify, sheets
+from solar_outreach import approval, budget, director, gmail_client, inbox, llm, notify, sheets
 from solar_outreach.config import Busy, load_config, single_run
 
 ALERT_AFTER = 3        # one-off Telegram/Google timeouts aren't worth an alert; three in a row are
@@ -36,6 +36,10 @@ def run(test_n: int = 0, with_inbox: bool = True) -> int:
         stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
         if stats["входящих"]:
             print("входящие:", stats, flush=True)
+        try:  # the director's answers to briefs; a document request it drafts goes out in this same pass
+            director.replies(api, sid, gmail_client.service())
+        except Exception as e:  # his letter stays unhandled and is read again next pass; the sellers' pipeline goes on
+            print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
         if stats.get("LLM недоступен"):  # replies wait unread: approval still runs, but it counts as a failed pass
             res = approval.main(test_n, full=False)
             failure(f"LLM недоступен: {stats['LLM недоступен']}")

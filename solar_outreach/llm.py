@@ -114,7 +114,9 @@ def anthropic_client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
-def call_json(model_key: str, user: str, schema: type[pydantic.BaseModel], effort: str = "medium"):
+def call_json(model_key: str, user: str | list, schema: type[pydantic.BaseModel], effort: str = "medium",
+              system: str = "", max_tokens: int = 4000):
+    """user: text, or content blocks (documents, images) followed by text. system: the seller-letter prompt by default."""
     cfg = load_config()
     client = anthropic_client()
     model = cfg["llm"][model_key]
@@ -123,9 +125,9 @@ def call_json(model_key: str, user: str, schema: type[pydantic.BaseModel], effor
     for attempt in range(1 + cfg["llm"]["json_retries"]):
         try:
             r = client.beta.messages.parse(
-                model=model, max_tokens=4000, **extra,
+                model=model, max_tokens=max_tokens, **extra,
                 output_config={"effort": effort}, output_format=schema,
-                system=[{"type": "text", "text": system_prompt(cfg), "cache_control": {"type": "ephemeral"}}],
+                system=[{"type": "text", "text": system or system_prompt(cfg), "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user}])
         except pydantic.ValidationError:
             continue

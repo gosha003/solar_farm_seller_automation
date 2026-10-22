@@ -6,7 +6,7 @@ import os
 import sys
 from datetime import date, datetime
 
-from solar_outreach import inbox, notify, owner, sheets
+from solar_outreach import brief, inbox, notify, owner, sheets
 from solar_outreach.config import load_config, load_env, single_run
 
 USAGE = """Сообщения «Ручной очереди» для alo.bg и WhatsApp: отправляет Claude в Chrome владельца по расписанию (Viber и другие сайты остаются людям).
@@ -34,9 +34,14 @@ def rows(api, sid) -> list[dict]:
         return []
     stations = {s["id"]: s for s in sheets.read(api, sid, "Станции")}
     black, refused = sheets.read(api, sid, "Чёрный список"), sheets.read(api, sid, "Отказы")
-    ok = [r for r in sheets.read(api, sid, "Ручная очередь") if r["статус"] == "отправить вручную" and kind(r)
-          and (st := stations.get(r["id станции"])) and st["статус переписки"] not in inbox.PAUSED
-          and not inbox.blocked(st, black, refused)]
+    queued = [r for r in sheets.read(api, sid, "Ручная очередь") if r["статус"] == "отправить вручную" and kind(r)]
+    # in a conversation the owner leads, only a document request he approved or the director asked for may go out
+    mine = [(d["id станции"], d["текст"]) for d in sheets.read(api, sid, "Черновики") if brief.cleared(d)
+            and d["статус"] == "одобрено"] if any(
+        stations.get(r["id станции"], {}).get("статус переписки") == inbox.OWNER_LED for r in queued) else []
+    ok = [r for r in queued if (st := stations.get(r["id станции"])) and not inbox.blocked(st, black, refused)
+          and (st["статус переписки"] not in inbox.PAUSED or st["статус переписки"] == inbox.OWNER_LED
+               and any(s == r["id станции"] and t and t in r["текст"] for s, t in mine))]
     return list({r["id станции"]: r for r in ok}.values())
 
 

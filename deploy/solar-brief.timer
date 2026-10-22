@@ -1,0 +1,9 @@
+[Unit]
+Description=Документы продавцов и сводки директору, раз в час
+
+[Timer]
+OnCalendar=*-*-* *:40
+Persistent=true
+
+[Install]
+WantedBy=timers.target

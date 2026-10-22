@@ -1,0 +1,17 @@
+[Unit]
+Description=Solar BG документы и сводки директору
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
+# reads new seller documents with Claude, checks the strict document set, briefs the owner (brief.py)
+ExecStart=__DIR__/.venv/bin/python -m solar_outreach.brief
+TimeoutStartSec=1h
+# e2-micro: yields to the bot like search does; a 23 MB PDF in base64 peaks around 150 MB
+Nice=19
+CPUWeight=10
+IOWeight=10
+MemoryHigh=350M
+MemoryMax=500M

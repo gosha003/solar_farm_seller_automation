@@ -75,6 +75,42 @@ flowchart LR
    14 categories, checklist answers go into the sheet, and anything sensitive pauses the dialog and alerts the owner.
 6. **Engine** ([engine.py](solar_outreach/engine.py)) runs everything as an idempotent pass under a lock. In daemon
    mode on the VM it checks mail every minute and long-polls Telegram in between.
+7. **Director briefs** ([documents.py](solar_outreach/documents.py), [brief.py](solar_outreach/brief.py),
+   [director.py](solar_outreach/director.py)): see below.
+
+## Documents and director briefs
+
+Once a seller sends documents, the system decides from the documents themselves whether the object is ready for
+official negotiations, and only then writes a brief for the company director.
+
+- **Reading.** Every file in a station's Drive folder (email attachments land there automatically; WhatsApp files or a
+  seller's shared folder are added with `documents add`) is read once by Claude as a document or image block and stored
+  as typed records in the «Документы» tab: type, number, date, holder, plots, capacity, entry into force, deadlines,
+  whether the grid fee is proven paid, whether the document is signed.
+- **Strict gate, in code.** A ready-to-build project needs a building permit that is still in force (three years to start
+  building from entry into force, or a site-opening protocol), a final grid connection contract whose deadline has not
+  passed (a later annex counts, one to the preliminary contract does not), a payment document for the connection fee
+  (an invoice is not proof), and a land title, a right to build or a lease. An operating plant needs the use permit
+  (Act 16), a grid contract, land, 12 months of production and a power sale contract. Capacity is taken from the
+  documents and must fit the criteria. A deadline closer than `director.min_days_left` blocks the object.
+- **Brief.** For an object that passes, Claude Opus writes the brief (overview, facts confirmed by documents with their
+  numbers, what is known only from the seller, risks, an overall opinion, steps before signing); a second call
+  fact-checks it against the records and one revision follows. Disclaimers and first-person hedging are rejected by a
+  regex after the model. The layout is rendered in code.
+- **Owner first.** The brief reaches the director only after the owner's ✅ in Telegram, and the gate runs again at that
+  moment. The email carries the key documents as attachments and its own Gmail label, so the director's replies never
+  enter the seller pipeline.
+- **Missing documents are requested in the conversation.** When the gate fails, the owner is told why once per change,
+  and what the seller can supply is requested as a reply in the seller's own Gmail thread (or the manual queue for
+  WhatsApp and alo.bg), in the conversation's language. Claude reads the history first and declines when asking is out
+  of place: documents promised only after an NDA or a deposit, a recent unanswered request, a closed conversation. The
+  request is an ordinary draft, so the hard rules and the approval mode apply; in a conversation the owner leads it is
+  always a card, never an automatic letter.
+- **The director's replies.** His answer in the brief's thread is recorded and summarised for the owner. Documents and
+  factual questions he asks for are requested from the seller without the owner; price, terms, NDA and meetings stay
+  with the owner. An outright rejection closes the station as a refusal for that listing only (the broker's other
+  objects stay open). He gets a short reply on what was done, and later the documents themselves, attached, as they
+  arrive.
 
 ## Guardrails
 
@@ -92,7 +128,8 @@ not left to the prompt:
   channel (email, WhatsApp, alo.bg) and to other listings of the same seller. A bounce rate above 10% switches
   sending back to manual and returns already approved letters to the owner.
 - A follow-up drafted before the seller answered is cancelled, on every channel.
-- Attachments are stored in Drive (PDF, images and DOCX only) and are never opened. Links in emails are never followed.
+- Attachments are stored in Drive (PDF, images and DOCX only) and never opened or executed locally; Claude reads them as
+  data, and instructions inside them are ignored. Links in emails are never followed.
 
 ## Tech stack
 
@@ -119,6 +156,9 @@ solar_outreach/
   followup.py        follow-ups on day 4 and 9 after the first letter or after our reply, 2 per contact in total
   owner.py           owner commands (/stats, /pause, /auto, /queue, ...), digest
   site_queue.py      CLI for the routine that sends «Ручная очередь» messages on alo.bg and WhatsApp
+  documents.py       seller documents read by Claude into typed records («Документы»); `add` uploads from the PC
+  brief.py           strict document gate, director briefs on the owner's ✅, document requests to sellers
+  director.py        the director's replies: recorded, acted on, answered in his thread
   alo_reply.py       CLI for the routine that reads seller replies in the alo.bg account
   gmail_client.py    Gmail restricted to the SolarBG label
   contacts.py        contact channel (email > phone > website)
@@ -159,6 +199,8 @@ python -m solar_outreach.search --import found.json   # listings the browser rou
 python -m solar_outreach.alo_reply pending     # alo.bg replies to read in the account
 python -m solar_outreach.site_queue pending    # alo.bg / WhatsApp messages to send
 python -m solar_outreach.site_queue log S0xx out WhatsApp @msg.txt   # a message read/sent by hand: dialog log + note
+python -m solar_outreach.documents add S0xx file.pdf ...       # documents from WhatsApp or a seller's shared folder
+python -m solar_outreach.brief S0xx                            # check one station now (the VM does all of them hourly)
 ```
 
 The operator interface (Telegram bot, sheet tabs and columns, owner summaries) is in Russian because the operator
@@ -174,6 +216,8 @@ and memory). setup.sh sets up the venv, 2 GB of swap and the systemd units:
   waits for the current pass to finish)
 - `solar-search-sites.timer` (3× a day), `solar-search-web.timer` (daily, with Claude web search),
   `solar-search-regions.timer` and `solar-search-brokers.timer` (weekly); search runs never overlap
+- `solar-brief.timer` (hourly): reads new seller documents, checks the gate, briefs, forwards documents the director
+  asked for
 
 Budget safety: a monthly GCP budget publishes to Pub/Sub. [budget.py](solar_outreach/budget.py) reads it, and at
 100% it alerts the owner and powers the VM off.

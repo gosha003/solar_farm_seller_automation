@@ -2,9 +2,12 @@
 - read and modify ONLY threads labelled SolarBG (checked in _thread, which every read goes through);
 - the SolarBG label is added only to mail from addresses in «Станции» (adopt: decided by From in a Gmail search, the body is not read);
 - no delete/trash: this module has neither;
-- with DRY_RUN nothing goes to sellers; mail to the owner (alerts, end-to-end test) is allowed.
+- with DRY_RUN nothing goes to sellers; mail to the owner (alerts, end-to-end test) is allowed;
+- internal letters (briefs to the director, send_files) carry their own label (SolarBG/директор), never SolarBG, so
+  replies to them stay out of the seller pipeline; replies_from reads only threads under that label.
 """
 import base64
+import io
 import os
 import re
 from functools import cache
@@ -15,6 +18,7 @@ from email.utils import make_msgid, parseaddr
 from bs4 import BeautifulSoup
 from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 from solar_outreach.config import dry_run, load_config
 from solar_outreach.google_auth import credentials
@@ -82,6 +86,72 @@ def send(svc, to: str, subject: str, body: str, thread_id: str = "", in_reply_to
     except Exception as e:  # adopt() labels the thread when the seller answers
         print(f"gmail: письмо {sent['id']} ушло, метка не поставлена ({type(e).__name__})", flush=True)
     return {"id": sent["id"], "threadId": sent["threadId"]}
+
+
+def send_files(svc, to: str, subject: str, body: str, files: list[tuple[str, bytes, str]], label: str = "",
+               thread_id: str = "", in_reply_to: str = "") -> dict:
+    """An internal letter with attachments (name, bytes, mime type), e.g. a brief to the director or a reply in his
+    thread, under its own label (never SolarBG: his replies must not enter the seller pipeline).
+    DRY_RUN: only the owner's own address gets mail."""
+    cfg = load_config()
+    if dry_run() and parseaddr(to)[1].lower() != cfg["owner"]["email"].lower():
+        return {"dry_run": True}
+    try:
+        own = label_ids(svc, label)[0] if label else ""
+    except Exception as e:
+        raise NotSent(f"{type(e).__name__}: {e}") from e
+    m = build_message(to, subject, body, cfg, in_reply_to)
+    for name, data, mime in files:
+        main, _, sub = mime.partition("/")
+        m.add_attachment(data, maintype=main, subtype=sub, filename=name)
+    # media upload: a JSON body with raw base64 is capped at ~5 MB by the Gmail API
+    media = MediaIoBaseUpload(io.BytesIO(m.as_bytes()), mimetype="message/rfc822", resumable=True)
+    try:
+        sent = svc.messages().send(userId="me", body={"threadId": thread_id} if thread_id else {}, media_body=media).execute()
+    except RefreshError as e:
+        raise NotSent(f"RefreshError: {e}") from e
+    if own:
+        try:  # the letter is out: a failed label only means its replies are not picked up
+            svc.messages().modify(userId="me", id=sent["id"], body={"addLabelIds": [own]}).execute()
+        except Exception as e:
+            print(f"gmail: письмо {sent['id']} ушло, метка не поставлена ({type(e).__name__})", flush=True)
+    return {"id": sent["id"], "threadId": sent["threadId"]}
+
+
+def replies_from(svc, sender: str, label: str) -> list[dict]:
+    """Unprocessed letters from `sender` in threads under an internal label (the director's answers to briefs).
+    Only those threads are read; marked with mark_internal once handled."""
+    lab, done = label_ids(svc, label)
+    out = []
+    # the query only narrows the listing (search writes a nested label with «-»); the check below decides
+    q = f"from:({sender}) -label:" + re.sub(r"[\s/]", "-", label + DONE_SUFFIX)  # no backslash in f-strings on 3.11
+    for t in svc.threads().list(userId="me", labelIds=[lab], q=q, maxResults=100).execute().get("threads", []):
+        for m in svc.threads().get(userId="me", id=t["id"], format="full").execute().get("messages", []):
+            if (parseaddr(header(m, "From"))[1].lower() == sender.lower() and done not in m.get("labelIds", [])
+                    and "SENT" not in m.get("labelIds", [])):
+                out.append(m)
+    return out
+
+
+def mark_internal(svc, msg: dict, label: str) -> None:
+    """Handled, but left unread: the owner may want to read the director's letter himself."""
+    lab, done = label_ids(svc, label)
+    svc.messages().modify(userId="me", id=msg["id"], body={"addLabelIds": [lab, done]}).execute(num_retries=3)
+
+
+def last_in_threads(svc, thread_ids: list[str]) -> dict | None:
+    """The seller's newest letter in these threads (a station's own conversation), only one inbox has already handled
+    (SolarBG/обработано): a document request never answers a letter that wasn't classified, escalated or checked."""
+    cfg = load_config()
+    label, done = label_ids(svc, cfg["gmail"]["label"])
+    owner, best = cfg["owner"]["email"].lower(), None
+    for tid in thread_ids:
+        for m in (_thread(svc, tid, label) or {}).get("messages", []):
+            ids = m.get("labelIds", [])
+            newer = best is None or int(m.get("internalDate", 0)) > int(best.get("internalDate", 0))
+            if parseaddr(header(m, "From"))[1].lower() != owner and "SENT" not in ids and done in ids and newer:
+                best = m
+    return best
 
 
 def _thread(svc, thread_id: str, label: str) -> dict | None:

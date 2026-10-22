@@ -12,7 +12,8 @@ import sys
 import time
 from datetime import date, timedelta
 
-from solar_outreach import drafts, followup, gmail_client as gmail, inbox, llm, notify, owner, rules, sheets, site_queue
+from solar_outreach import (brief, drafts, followup, gmail_client as gmail, inbox, llm, notify, owner, rules, sheets,
+                            site_queue)
 from solar_outreach.config import dry_run, load_config, single_run
 
 WAITING = ("на одобрении", "ждёт правки")
@@ -94,9 +95,17 @@ def cancel_followups(api, sid, by_id: dict, dialogs: list[dict]) -> dict:
     """A follow-up drafted before the seller answered never goes out: the draft and its «Ручная очередь» row are cancelled.
     Returns the cancelled drafts that are sheet rows."""
     answered = followup.last_reply(dialogs)  # an answer the follow-up was drafted after doesn't cancel it
-    stale = {d["id"]: d for d in by_id.values() if d["тип"].startswith("дожим") and d["id станции"] in answered
-             and answered[d["id станции"]] >= d.get("дата", "")
-             and (d["статус"] in WAITING or d["статус"] == "одобрено" and d.get("отправлено", "") in UNSENT)}
+    # a seller who refused, sold or wrote something suspicious gets no document request either, even in a conversation
+    # the owner leads (inbox records such a reply there but leaves the status to the owner)
+    ins = {}
+    for r in dialogs:
+        if r["направление"] == "in":
+            ins[r["id станции"]] = r["краткое содержание"]
+    closing = {k for k, text in ins.items() if text.startswith(brief.CLOSING)}
+    unsent = lambda d: d["статус"] in WAITING or d["статус"] == "одобрено" and d.get("отправлено", "") in UNSENT
+    stale = {d["id"]: d for d in by_id.values() if unsent(d) and (
+        d["тип"].startswith("дожим") and d["id станции"] in answered and answered[d["id станции"]] >= d.get("дата", "")
+        or d["тип"].startswith(brief.DOC_REQUEST) and d["id станции"] in closing)}
     for d in stale.values():
         d["статус"] = followup.CANCELLED
     if stale:
@@ -151,6 +160,12 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
         try:
             if cq:
                 action, _, did = (cq.get("data") or "").partition(":")
+                if action in ("b", "bx") and ctx:  # a director brief (brief.py), not a draft: «b:<row>:<station>»
+                    notify.answer_callback(cq["id"])
+                    mid = (cq.get("message") or {}).get("message_id")
+                    notify.send(brief.approve(ctx.api, ctx.sid, did, date.today(), mid) if action == "b"
+                                else brief.skip(ctx.api, ctx.sid, did, mid))
+                    continue
                 d = by_id.get(did)
                 st = stations.get(d["id станции"]) if d else None
                 if not d or not st or d["статус"] not in WAITING:
@@ -177,7 +192,7 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
                         site_hint(d, st)
                 elif action == "s":
                     d["статус"] = "пропущено"
-                    if "ТЕСТ" not in d["тип"]:
+                    if "ТЕСТ" not in d["тип"] and not d["тип"].startswith(brief.DOC_REQUEST):  # a skipped request only drops itself
                         st["статус переписки"] = "пропущено владельцем"
                     notify.answer_callback(cq["id"], "Пропущено")
                 elif action == "e":
@@ -261,7 +276,9 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
             d["статус"] = "в отказах" if "Отказ" in why else "чёрный список"
             notify.try_send(f"⛔ {d['id']}: {to} {why} (просил не писать, продано или bounce), автоматически не отправляю.")
             continue
-        if st["статус переписки"] in PAUSED:
+        # into a conversation the owner leads only a document request he approved, or one the director asked for
+        owner_led = st["статус переписки"] == inbox.OWNER_LED and brief.cleared(d)
+        if st["статус переписки"] in PAUSED and not owner_led:
             d["статус"] = "на паузе"
             notify.try_send(f"⏸ {d['id']}: диалог {d['id станции']} на паузе ({st['статус переписки']}), "
                             "не отправляю. Реши эскалацию, потом пришли правку или одобри заново.")
@@ -304,8 +321,10 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         d.update({"статус": "отправлено", "отправлено": today, "тред Gmail": res["threadId"]})
         if first:
             sent_first |= addrs(d)
-        st.update({"статус переписки": "ждём ответа", "последний контакт": today, "следующий шаг": "ждать ответа"})
-        if not d["тип"].startswith("дожим"):
+        st["последний контакт"] = today
+        if not owner_led:  # the owner's conversation stays his
+            st.update({"статус переписки": "ждём ответа", "следующий шаг": "ждать ответа"})
+        if not d["тип"].startswith(("дожим", brief.DOC_REQUEST)):
             sheets.mark_asked(st, first)
         row = {"id станции": d["id станции"], "направление": "out", "дата": today, "канал": "email",
                "язык": d["язык"], "краткое содержание": f"{d['тип']}: {d['тема']}", "тред Gmail": res["threadId"]}
