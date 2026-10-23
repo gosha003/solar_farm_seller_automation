@@ -76,7 +76,8 @@ flowchart LR
 5. **Inbox** ([inbox.py](solar_outreach/inbox.py), [llm.py](solar_outreach/llm.py)): replies are classified into
    14 categories, checklist answers go into the sheet, and anything sensitive pauses the dialog and alerts the owner.
 6. **Engine** ([engine.py](solar_outreach/engine.py)) runs everything as an idempotent pass under a lock. In daemon
-   mode on the VM it checks mail every minute and long-polls Telegram in between.
+   mode on the VM it answers Telegram taps within seconds (long polling) and runs drafts and sending every minute;
+   seller mail and the director's letters are read twice a day (`schedule.mail`, 8:30 and 20:30) or on `/mail`.
 7. **Director briefs** ([documents.py](solar_outreach/documents.py), [brief.py](solar_outreach/brief.py),
    [director.py](solar_outreach/director.py)): see below.
 

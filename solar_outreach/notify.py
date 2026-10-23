@@ -226,7 +226,7 @@ COMMANDS = {"stats": "статистика", "status": "карточка ста�
             "digest": "дайджест сейчас", "pause": "остановить отправку продавцам", "resume": "возобновить отправку",
             "auto": "/auto on или /auto off", "blacklist": "больше не писать: /blacklist email",
             "sent": "я сам отправил: /sent S020", "note": "ответ продавца из WhatsApp: /note S020 текст",
-            "brief": "сводка директору: /brief S020"}
+            "brief": "сводка директору: /brief S020", "mail": "проверить почту сейчас"}
 
 
 def set_commands() -> None:

@@ -24,8 +24,11 @@ HELP = join(head("📋", "Команды"), "\n".join([
     f"{code('/note')} {ID} {i('ответ продавца')} — вставь ответ из WhatsApp/Viber: факты в таблицу, эскалация "
     "или черновик ответа",
     f"{code('/brief')} {ID} — готова ли сводка директору, чего не хватает и что запрошено",
+    f"{code('/mail')} — проверить почту сейчас (по расписанию она читается дважды в сутки)",
     f"📎 файл, фото или ссылка на Drive с подписью {code('S020')} — документ в папку станции (например, переслать из WhatsApp)"]))
 
+
+MAIL_NOW = "почта сейчас"  # «Настройки»: /mail asks for a mail check before the scheduled one
 
 class Ctx:
     """Data of one run: read once in approval.main; commands only read it and change settings."""
@@ -348,6 +351,9 @@ def command(text: str, c: Ctx, today: date) -> str:
         return join(head("⛔", "В чёрном списке", arg), "Больше не пишем.")
     if cmd == "/status" and arg:
         return status(c, arg)
+    if cmd == "/mail":
+        c.settings[MAIL_NOW] = "да"  # engine.run reads it on the next full pass, within a minute
+        return join(head("📬", "Проверю почту"), "В течение минуты: письма продавцов и ответы директора.")
     if cmd == "/brief" and arg:
         return brief.status(c.api, c.sid, arg.split()[0])
     if cmd == "/sent" and arg:
