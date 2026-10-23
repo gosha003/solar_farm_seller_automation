@@ -4,10 +4,13 @@
     python -m solar_outreach.engine --daemon   # VM: runs forever, answers in Telegram within seconds (systemd: solar-bot)
 
 Pass: inbox (classify, extract facts, escalate) and the director's replies to briefs, only at schedule.mail (twice a
-day) or on /mail -> Telegram buttons and commands, drafts and follow-ups, sending within limits, digest (every pass). Search is a separate timed process, `python -m solar_outreach.search`:
-it is slow (polite pauses between site requests).
+day), on /mail, or before a letter goes into a thread the seller has written in since -> Telegram buttons and commands,
+drafts, sending within limits, digest (every pass); follow-ups are drafted only right after a mail check. Between the
+checks every pass still takes bounces and alo.bg notices (no LLM): the bounce stop and the PC routine rely on them.
+Search is a separate timed process, `python -m solar_outreach.search`: it is slow (polite pauses between site requests).
 """
 import os
+import re
 import signal
 import sys
 import tempfile
@@ -32,10 +35,8 @@ def mail_due(now: datetime, last: str, slots: list[str]) -> bool:
     """The newest scheduled time at or before now (today's, or yesterday's last) is later than the last mail check."""
     days = (now.date() - timedelta(days=1), now.date())
     latest = max(t for t in (datetime.combine(d, dtime.fromisoformat(s)) for d in days for s in slots) if t <= now)
-    try:
-        return datetime.fromisoformat(last) < latest
-    except ValueError:  # never checked
-        return True
+    m = re.match(r"(\d{4})-(\d\d)-(\d\d)[ T](\d{1,2}):(\d\d)", last or "")  # the sheet may show «8:30» for 08:30
+    return not m or datetime(*map(int, m.groups())) < latest  # no match: never checked
 
 
 def run(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> int:
@@ -49,31 +50,34 @@ def run(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> i
         mode = settings.get("approval_mode", {}).get("значение") or cfg["approval_mode"]
         asked = settings.get(owner.MAIL_NOW, {}).get("значение") == "да"
         now = owner.local_now(cfg).replace(tzinfo=None)
+        state = sheets.kv(api, sid, "_state")
         if mail is None:
-            mail = asked or mail_due(now, sheets.kv(api, sid, "_state").get(MAIL_KEY, {}).get("значение", ""),
-                                     cfg["schedule"]["mail"])
+            mail = asked or state.get(owner.MAIL_NEEDED, {}).get("значение") == "да" or mail_due(
+                now, state.get(MAIL_KEY, {}).get("значение", ""), cfg["schedule"]["mail"])
+        stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto", light=not mail)
+        if stats["входящих"]:
+            print("входящие:", stats, flush=True)
         if mail:
-            stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
-            if stats["входящих"]:
-                print("входящие:", stats, flush=True)
-            try:  # the director's answers to briefs; a document request it drafts goes out in this same pass
-                director.replies(api, sid, gmail_client.service())
-            except Exception as e:  # his letter stays unhandled and is read at the next check; the sellers' pipeline goes on
-                print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
             if stats.get("LLM недоступен"):  # replies wait unread and the check is due again: retried every pass
-                res = approval.main(test_n, full=False)
+                res = approval.main(test_n, full=False, fresh=False)
                 failure(f"LLM недоступен: {stats['LLM недоступен']}")
                 return res
-            sheets.set_kv(api, sid, "_state", {MAIL_KEY: now.isoformat(timespec="minutes")})
+            try:  # the director's answers to briefs; a document request it drafts goes out in this same pass
+                director.replies(api, sid, gmail_client.service())
+            except Exception as e:  # the check stays due: retried every pass, at most until the alert
+                print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
+                if failure(f"директор: {type(e).__name__}: {str(e)[:200]}") < ALERT_AFTER:
+                    return approval.main(test_n, full=False)
+            sheets.set_kv(api, sid, "_state", {MAIL_KEY: now.isoformat(timespec="minutes"), owner.MAIL_NEEDED: ""})
             if asked:  # the owner's /mail: the flag goes, and he hears back even when nothing came
                 sheets.set_kv(api, sid, "Настройки", {owner.MAIL_NOW: "нет"})
                 notify.try_send(notify.join(notify.head("📬", "Почта проверена"),
                                             f"Новых писем: {stats['входящих']}. Следующая проверка по расписанию: "
                                             f"{', '.join(cfg['schedule']['mail'])}."))
-    return approval.main(test_n, full=with_inbox)  # only a full pass resets the failure counter
+    return approval.main(test_n, full=with_inbox, fresh=bool(mail))  # only a full pass resets the failure counter
 
 
-def failure(err: str) -> None:
+def failure(err: str) -> int:
     """Consecutive-failure counter in «_state» (approval.main resets it on a successful pass).
     If the sheet is unavailable the counter lives in a local file, so the owner isn't alerted every minute."""
     f = FAIL_FILE
@@ -88,6 +92,7 @@ def failure(err: str) -> None:
     if n == ALERT_AFTER:
         notify.urgent(notify.join(notify.head("⚠️", f"{n} запуска подряд с ошибкой"),
                                   f"{notify.b('Последняя:')} {notify.esc(err)}"))
+    return n
 
 
 def once(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> int | None:

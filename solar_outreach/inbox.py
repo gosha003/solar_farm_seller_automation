@@ -136,11 +136,18 @@ def reply_body(st: dict, c: llm.Classification) -> str:
     return f"{GREETING[lang]}\n\n{para}\n\n{body}" if para else body
 
 
+def manual_channel(st: dict) -> tuple[str, str]:
+    """(channel, address) for a letter the owner sends by hand («Ручная очередь»): the seller answered on WhatsApp,
+    Viber or alo.bg, or wrote to the owner's own mailbox."""
+    channel_ = "email (вручную)" if st["канал"] == "email" else st["канал"]
+    to = st.get("телефон") if channel_.startswith("телефон") else st.get("email") if "email" in channel_ else st["ссылка"]
+    return channel_, to
+
+
 def manual_reply_draft(st: dict, c: llm.Classification, did: str) -> dict:
     """/note: the seller answered on WhatsApp/Viber/the owner's mailbox; the owner replies personally («Ручная очередь»)."""
     lang, body = c.language, reply_body(st, c)
-    channel_ = "email (вручную)" if st["канал"] == "email" else st["канал"]
-    to = st.get("телефон") if channel_.startswith("телефон") else st.get("email") if "email" in channel_ else st["ссылка"]
+    channel_, to = manual_channel(st)
     return {"id": did, "id станции": st["id"], "дата": date.today().isoformat(), "язык": lang, "тип": "ответ",
             "канал": channel_, "кому": to, "тема": "", "текст": body, "статус": "на одобрении",
             "нарушения правил": ", ".join(rules.violations(body, drafts.template(lang)["signature"]))}
@@ -175,13 +182,23 @@ def save_files(st: dict | None, msg: dict, svc) -> list[str]:
         return [f"{n} (Drive: {type(e).__name__})" for n in names]
 
 
-def process(api, sid, svc, auto: bool = False) -> dict:
+def process(api, sid, svc, auto: bool = False, light: bool = False) -> dict:
     """Process all new incoming mail. auto (/auto on): a reply draft without rule violations approves itself;
     escalations are unaffected. Returns counters for the log/digest.
+
+    light: the passes between the scheduled mail checks take only what needs no LLM: bounces (the bounce stop must
+    see them before the next letters go out) and alo.bg notices (the dialog turns «ответ на alo» before the PC
+    routine sends anything there). Sellers' letters stay unread until the next check.
 
     A message is marked «обработано» in Gmail only after its results are in the sheet. If one raises (Telegram,
     Gmail, the LLM API down), its partial results are dropped, the messages before it are saved and marked,
     and it is read again next pass: at least once, never lost."""
+    stats = {"входящих": 0, "эскалаций": 0, "черновиков": 0, "закрыто": 0, "bounce": 0}
+    if light:  # most passes find nothing of the kind: then the sheet isn't read at all
+        msgs = [m for m in gmail.incoming(svc) if gmail.is_bounce(m) or ALO.search(
+            parseaddr(gmail.header(m, "From"))[1].lower()) and ALO_NOTICE.search(gmail.text(m))]
+        if not msgs:
+            return stats
     stations = {r["id"]: r for r in sheets.read(api, sid, "Станции")}
     dialogs = sheets.read(api, sid, "Диалоги")
     blacklist = sheets.read(api, sid, "Чёрный список")
@@ -197,7 +214,6 @@ def process(api, sid, svc, auto: bool = False) -> dict:
             by_domain.setdefault(e.split("@")[-1], set()).add(s_id)
     before = {k: dict(v) for k, v in stations.items()}
     new_dialogs, new_drafts, new_black, new_stations, new_refusals = [], [], [], [], []
-    stats = {"входящих": 0, "эскалаций": 0, "черновиков": 0, "закрыто": 0, "bounce": 0}
     drafted: dict[str, int] = {}  # station id -> index in new_drafts: one reply per station per pass
     today = date.today().isoformat()
 
@@ -334,8 +350,9 @@ def process(api, sid, svc, auto: bool = False) -> dict:
     lists = (new_dialogs, new_drafts, new_black, new_stations, new_refusals)
     done, err = [], None
     contacted = [e for e, s_id in by_email.items() if stations[s_id]["статус переписки"] not in ("новая", "не писать", "черновик")]
-    gmail.adopt(svc, contacted)  # only sellers we wrote to: a listed-only address must not pull in unrelated mail
-    for msg in gmail.incoming(svc):
+    if not light:
+        gmail.adopt(svc, contacted)  # only sellers we wrote to: a listed-only address must not pull in unrelated mail
+    for msg in msgs if light else gmail.incoming(svc):
         if gmail.header(msg, "Message-ID") in answered:  # its reply draft is already in the sheet: never a second one
             done.append(msg)
             continue
@@ -345,6 +362,8 @@ def process(api, sid, svc, auto: bool = False) -> dict:
             frm = parseaddr(gmail.header(msg, "From"))[1].lower()
             body = gmail.text(msg)
             st = find(msg, frm, body)
+            if light and not (gmail.is_bounce(msg) or ALO.search(frm) and ALO_NOTICE.search(body)):
+                continue  # a seller's letter: read with the LLM at the next scheduled check
             snap = dict(st) if st else None
             handle(msg, frm, body, st)
         except Exception as e:  # undo this message's partial results; it stays unread for the next pass

@@ -172,6 +172,22 @@ def test_route_answers_in_the_thread_without_marking_the_message_answered():
     assert where == {"канал": "email", "кому": "s@example.org", "тред Gmail": "t", "тема": "Re: Отговор"}
 
 
+def test_route_follows_the_channel_the_seller_answers_on_and_our_own_thread():
+    whatsapp = [{"направление": "out", "канал": "email"}, {"направление": "in", "канал": "вручную"}]   # /note
+    assert brief.route(ST, None, "bg", whatsapp, []) == {"канал": "email (вручную)", "кому": "seller@example.org", "тема": ""}
+    ours = [{"тред Gmail": "t-our", "статус": "отправлено", "канал": "email", "кому": "seller@example.org",
+             "тема": "Запитване за ФЕЦ"}]
+    assert brief.route(ST, None, "bg", [{"направление": "out", "канал": "email"}], ours) == {
+        "канал": "email", "кому": "seller@example.org", "тред Gmail": "t-our", "тема": "Re: Запитване за ФЕЦ"}
+
+
+def test_a_file_deleted_from_the_folder_no_longer_counts():
+    rows = [{"id станции": "S500", "id файла": f, "файл": f"{f}.pdf", "ссылка": "", "проверено": "", "документы": "x",
+             "данные": '[{"type": "разрешение за строеж"}]'} for f in ("f-1", "f-2")]
+    assert [d["file_id"] for d in documents.records(rows, {"S500": {"f-2"}, "S501": {"f-1"}})["S500"]] == ["f-2"]
+    assert len(documents.records(rows)["S500"]) == 2
+
+
 def test_docx_text_and_unsupported_files():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -537,6 +553,72 @@ def test_a_personal_letter_is_only_marked_seen(answered):
     director.replies(None, "test", None, TODAY)
     assert marked[-1] == "seen:m3" and len(tg) == n and sent == []
     assert "письмо m3" not in sheet.tabs["Сводки"][0]["ответ директора"]
+
+
+def test_an_answer_that_did_not_go_out_is_sent_at_the_next_check(answered, monkeypatch):
+    sheet, tg, sent, calls, marked = answered
+    SAID["reply"] = reply("нужно больше данных", ["анекс"])
+    def down(*a, **k):
+        raise gmail_client.NotSent("RefreshError")
+    monkeypatch.setattr(gmail_client, "send_files", down)
+    director.replies(None, "test", None, TODAY)
+    assert marked == ["m1"] and json.loads(sheet.tabs["Сводки"][0]["не отправлено"])["m1"]["director"]
+    assert sum("Директор ответил" in t and "не ушёл" in t for t, _ in tg) == 1      # the owner is told at once
+    monkeypatch.setattr(gmail_client, "send_files", lambda svc, to, subject, body, files, label="", thread_id="",
+                        in_reply_to="": sent.append((to, body, thread_id)) or {"id": "m", "threadId": thread_id})
+    n = len(calls)
+    director.replies(None, "test", None, TODAY)
+    assert sent[-1][2] == "t-dir" and sheet.tabs["Сводки"][0]["не отправлено"] == "" and len(calls) == n   # no LLM again
+    assert sum("Директор ответил" in t for t, _ in tg) == 1
+
+
+def test_an_answer_that_may_have_gone_out_is_never_sent_twice(answered, monkeypatch):
+    sheet, tg, sent, calls, marked = answered
+    SAID["reply"] = reply("нужно больше данных", ["анекс"])
+    def timeout(*a, **k):
+        sent.append("delivered")
+        raise TimeoutError("read timed out")
+    monkeypatch.setattr(gmail_client, "send_files", timeout)
+    director.replies(None, "test", None, TODAY)
+    director.replies(None, "test", None, TODAY)
+    assert sent.count("delivered") == 1 and sheet.tabs["Сводки"][0]["не отправлено"] == ""
+    assert any("мог не уйти" in t for t, _ in tg)
+
+
+def test_a_station_whose_files_were_not_all_read_waits_for_the_next_pass(world, monkeypatch):
+    sheet, tg, sent, calls = world
+    register(sheet, PROJECT[:2])                                      # the outage stopped reading halfway
+    monkeypatch.setattr(documents, "refresh", lambda *a, **k: (_ for _ in ()).throw(llm.LLMUnavailable("API: 529")))
+    assert brief.run(today=TODAY) == "сводки: изменений нет" and sheet.tabs["Сводки"] == [] and calls == []
+
+
+def test_one_open_request_per_station_delivers_each_file_once(answered):
+    sheet, tg, sent, calls, marked = answered
+    SAID["reply"] = reply("нужно больше данных", ["анекс"])
+    director.replies(None, "test", None, TODAY)                                  # the first brief's request waits
+    sheet.tabs["Черновики"][0].update({"статус": "отправлено", "отправлено": "2026-10-22"})
+    register(sheet, [doc(documents.ANNEX, "Анекс 1", "111-1", refers_to="111")])   # came, not delivered yet
+    sheet.add("Сводки", {"id станции": "S500", "итог": "готово", "статус": "отправлено", "тема": "Обновление: S500",
+                         "текст": "сводка 2", "тред Gmail": "t-dir2"})
+    SAID["fresh"].append(letter_in("t-dir2", "И ещё выписку из ТР.", "m2", "Re: Обновление: S500"))
+    SAID["reply"] = reply("нужно больше данных", ["выписка из ТР"])
+    director.replies(None, "test", None, TODAY)
+    first, second = sheet.tabs["Сводки"]
+    assert first["ждёт директор"] == "" and json.loads(second["ждёт директор"])["asked"] == ["анекс", "выписка из ТР"]
+    n = len(sent)
+    assert director.deliver(None, "test", TODAY) == "S500: дослано"
+    assert len(sent) == n + 1 and sent[-1][4] == "t-dir2" and sent[-1][3] == ["Анекс 1.pdf"]
+
+
+def test_a_new_letter_claude_could_not_read_is_named_without_its_text(answered, monkeypatch):
+    sheet, tg, sent, calls, marked = answered
+    marked.append("m1")
+    SAID["fresh"].append(letter_in("t-x", "Текст письма целиком", "m4", "Про объект в Плевене"))
+    def broken(model_key, user, schema, **kw):
+        raise llm.LLMError("невалидный JSON после повтора")
+    monkeypatch.setattr(llm, "call_json", broken)
+    director.replies(None, "test", None, TODAY)
+    assert marked[-1] == "seen:m4" and "Про объект в Плевене" in tg[-1][0] and "Текст письма" not in tg[-1][0]
 
 
 def test_telegram_cards_are_valid_markup_with_escaped_values():

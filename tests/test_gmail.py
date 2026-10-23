@@ -146,3 +146,38 @@ def test_failure_before_the_send_is_not_sent(monkeypatch):
     with pytest.raises(gmail.NotSent):
         gmail.send(svc, "seller@abv.bg", "s", "b")
     assert svc.calls == []
+
+
+def test_the_directors_letter_in_a_seller_thread_is_not_a_sellers_reply():
+    svc = FakeSvc()
+    assert gmail.unread_in(svc, "t1") and not gmail.unread_in(svc, "t2")       # t2 isn't ours
+    ex = lambda v: SimpleNamespace(execute=lambda **k: v)
+    t1 = {"messages": [msg(labels=("SENT", "L1"), frm="owner@example.com", id="m0"),
+                       msg(labels=("L1", "L2"), id="m1"),                                # read by inbox already
+                       msg(frm="director@example.com", labels=("L1",), id="m2")]}       # the owner forwarded it to him
+    svc.threads = lambda: SimpleNamespace(list=lambda **k: ex({"threads": [{"id": "t1"}]}),
+                                          get=lambda userId, id, format: ex(t1))
+    assert gmail.incoming(svc) == [] and not gmail.unread_in(svc, "t1")
+
+
+def test_his_letters_older_than_the_brief_are_not_replies_to_it():
+    ex = lambda v: SimpleNamespace(execute=lambda **k: v)
+    labels = [{"name": "SolarBG/директор", "id": "D1"}, {"name": "SolarBG/директор/обработано", "id": "D2"}]
+
+    def at(mid, frm, when, labels_=()):
+        return {**msg(frm=frm, labels=labels_, id=mid), "internalDate": str(when)}
+    t = {"messages": [at("old", "director@example.com", 100),                    # a personal letter from before
+                      at("brief", "owner@example.com", 200, ("SENT", "D1")),
+                      at("new", "director@example.com", 300)]}
+    svc = SimpleNamespace(labels=lambda: SimpleNamespace(list=lambda **k: ex({"labels": labels})),
+                          threads=lambda: SimpleNamespace(list=lambda **k: ex({"threads": [{"id": "t"}]}),
+                                                          get=lambda userId, id, format: ex(t)))
+    assert [m["id"] for m in gmail.replies_from(svc, "director@example.com", "SolarBG/директор")] == ["new"]
+
+
+def test_a_trashed_conversation_is_not_unread_mail():
+    svc = FakeSvc()
+    ex = lambda v: SimpleNamespace(execute=lambda **k: v)
+    t1 = {"messages": [msg(labels=("SENT", "L1"), frm="owner@example.com", id="m0"), msg(labels=("L1", "TRASH"), id="m1")]}
+    svc.threads = lambda: SimpleNamespace(list=lambda **k: ex({"threads": []}), get=lambda userId, id, format: ex(t1))
+    assert not gmail.unread_in(svc, "t1")                            # inbox never lists it, so nothing would read it

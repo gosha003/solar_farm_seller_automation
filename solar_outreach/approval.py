@@ -123,6 +123,7 @@ def by_routine(d: dict, st: dict) -> bool:
 
 
 ROUTINE = "уйдёт с ПК по расписанию (alo.bg/WhatsApp), сам не отправляй"
+CAPTIONS: dict[str, str] = {}  # media group -> its caption, for the files of an album that come in a later batch
 
 
 def site_hint(d: dict, st: dict) -> None:
@@ -156,7 +157,13 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
     offset = int(state.get("tg_offset") or 0)
     pending = state.get("pending_edit") or ""
     changed, queue, approved = {}, [], 0
-    for u in notify.updates(offset):
+    ups = notify.updates(offset)
+    albums: dict[str, list] = {}  # several files sent at once: one media group, the caption on one of them
+    for u in ups:
+        m = u.get("message") or {}
+        if u["_owner"] and m.get("media_group_id"):
+            albums.setdefault(m["media_group_id"], []).append(m)
+    for u in ups:
         offset = u["update_id"] + 1
         if not u["_owner"]:
             continue
@@ -209,7 +216,13 @@ def handle_updates(state, stations, by_id, ctx: "owner.Ctx | None" = None) -> tu
             elif msg.get("document") or msg.get("photo") or (
                     msg.get("text") and not pending and not msg["text"].startswith("/") and documents.drive_links(msg["text"])):
                 # a file or a Drive link forwarded to the bot (e.g. from WhatsApp) with «S0xx»: into the station folder
-                notify.send(documents.from_telegram(msg, stations, date.today()))
+                gid = msg.get("media_group_id")
+                group = albums.pop(gid, []) if gid else [msg]
+                if group:  # the rest of an album was handled with its first file
+                    caption = next((m["caption"] for m in group if m.get("caption")), "") or CAPTIONS.get(gid, "")
+                    if gid and caption:  # ponytail: per process; an album split across a restart asks again
+                        CAPTIONS[gid] = caption
+                    notify.send(documents.from_telegram(group, stations, date.today(), caption))
             elif msg.get("text") and pending and not msg["text"].startswith("/"):
                 d, pending = by_id.get(pending), ""
                 st = stations.get(d["id станции"]) if d else None
@@ -309,6 +322,15 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         first, outreach = d["тип"].startswith("первое"), d["тип"].startswith(("первое", "дожим"))
         if outreach and (left["run"] <= 0 or first and left["first"] <= 0):
             continue
+        try:
+            held = bool(d.get("тред Gmail")) and gmail.unread_in(svc, d["тред Gmail"])
+        except Exception as e:  # a deleted thread, a Gmail blip: the send below reports a real problem itself
+            print(f"{d['id']}: тред не прочитан ({type(e).__name__})", flush=True)
+            held = False
+        if held:  # the seller wrote since the last mail check: the next pass reads it first (a refusal blocks this
+            # letter, an answer cancels a follow-up), then this one goes out or not
+            sheets.set_kv(api, sid, "_state", {owner.MAIL_NEEDED: "да"})
+            continue
         if out and not dry_run():
             time.sleep(random.uniform(*cfg["limits"]["send_pause_sec"]))
         claim = "_row" in d and not dry_run()
@@ -385,9 +407,11 @@ def bounce_stop(c: "owner.Ctx", by_id: dict, today: date) -> None:
                        f"{code('/auto on')} вернёт автоотправку."))
 
 
-def main(test_n: int = 0, full: bool = True) -> int:
+def main(test_n: int = 0, full: bool = True, fresh: bool = True) -> int:
     """One pass. Returns the Telegram offset for the daemon's long polling.
-    full=False: the daemon's pass without the inbox; it doesn't reset the failure counter, so a broken inbox still alerts."""
+    full=False: the daemon's pass without the inbox; it doesn't reset the failure counter, so a broken inbox still alerts.
+    fresh: the mail has just been read. Follow-ups are drafted only then: a reply that came after the last check
+    (mail is read twice a day) would otherwise get a reminder."""
     cfg = load_config()
     api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
     sheets.ensure_tabs(api, sid)
@@ -433,7 +457,8 @@ def main(test_n: int = 0, full: bool = True) -> int:
                 st["статус переписки"] = "черновик"
             present(d, st, auto, queue)
             new.append(d)
-        for d in followup.due(stations, by_id, dialogs + ctx.new_dialogs, cfg["limits"]["followup_days"], today):
+        due = followup.due(stations, by_id, dialogs + ctx.new_dialogs, cfg["limits"]["followup_days"], today) if fresh else []
+        for d in due:
             d["id"] = next_id()
             present(d, stations[d["id станции"]], auto, queue)
             new.append(d)

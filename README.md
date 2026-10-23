@@ -78,6 +78,9 @@ flowchart LR
 6. **Engine** ([engine.py](solar_outreach/engine.py)) runs everything as an idempotent pass under a lock. In daemon
    mode on the VM it answers Telegram taps within seconds (long polling) and runs drafts and sending every minute;
    seller mail and the director's letters are read twice a day (`schedule.mail`, 8:30 and 20:30) or on `/mail`.
+   Follow-ups are drafted right after such a check. Between the checks every pass still takes bounces and alo.bg
+   notices, which need no LLM, so the bounce stop and the PC routine see them at once; and a letter into a thread the
+   seller has written in since the last check waits until the mail is read (the next pass reads it).
 7. **Director briefs** ([documents.py](solar_outreach/documents.py), [brief.py](solar_outreach/brief.py),
    [director.py](solar_outreach/director.py)): see below.
 
@@ -88,9 +91,11 @@ official negotiations, and only then writes a brief for the company director.
 
 - **Collecting.** Email attachments land in the station's Drive folder automatically. Twice a day the system also looks
   for Google Drive links the seller sent (in his letters in the station's own threads, in logged WhatsApp messages) and
-  copies the shared files over; a file it already has (same source or the same bytes) is never fetched twice. WhatsApp
-  has no API for a personal account, so a document from WhatsApp is forwarded to the Telegram bot with the station id
-  as the caption («S138»), and the bot stores it.
+  copies the shared files over; a file it already has (same source or the same bytes) is never fetched twice. A file
+  it can't take (not shared with the link, too big, a type never stored) is named to the owner once. WhatsApp has no
+  API for a personal account, so a document from WhatsApp is forwarded to the Telegram bot with the station id as the
+  caption («S138»), several files at once too, and the bot stores them. A file deleted from a station folder (filed
+  under the wrong station, say) no longer counts anywhere.
 - **Reading.** Every file in a station's Drive folder is read once by Claude as a document or image block and stored
   as typed records in the «Документы» tab: type, number, date, holder, plots, capacity, entry into force, deadlines,
   whether the grid fee is proven paid, whether the document is signed.
@@ -118,7 +123,8 @@ official negotiations, and only then writes a brief for the company director.
   factual questions he asks for are requested from the seller without the owner; price, terms, NDA and meetings stay
   with the owner. An outright rejection closes the station as a refusal for that listing only (the broker's other
   objects stay open). He gets a short reply on what was done, and later the documents themselves, attached, as they
-  arrive.
+  arrive, once per station. His letters in a seller's thread (a forward, a CC) never enter the seller pipeline, and a
+  reply or notice that failed to go out is kept in «Сводки» and sent at the next check.
 
 ## Guardrails
 

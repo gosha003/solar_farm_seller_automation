@@ -230,3 +230,13 @@ def test_seller_text_in_an_alert_is_escaped_and_the_thread_is_a_link(box):
     inbox.process(None, None, None)
     assert "Цена &lt;b&gt;5 000&lt;/b&gt; &amp; торг" in tg[0] and "bad &lt;json&gt;" in tg[0] and "🚨" in tg[0]
     assert '<a href="https://mail.google.com/mail/u/0/#all/t1">тред в Gmail</a>' in tg[0]
+
+
+def test_between_mail_checks_only_bounces_are_taken_and_no_llm_runs(box):
+    sheet, msgs, done, tg, answers = box                             # answers is empty: a classify call would fail
+    msgs += [mail("m1", "Цената е по договаряне."),
+             mail("b1", "failed", frm="mailer-daemon@googlemail.com", subject="Delivery Status Notification (Failure)")]
+    inbox.process(None, None, None, light=True)
+    assert done == ["b1"] and sheet.tabs["Станции"][0]["статус переписки"] == "отказ"    # m1 waits for the check
+    msgs[:] = [mail("m1", "Цената е по договаряне.")]
+    assert inbox.process(None, None, None, light=True)["входящих"] == 0 and done == ["b1"]

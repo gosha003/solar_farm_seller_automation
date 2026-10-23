@@ -28,7 +28,7 @@ def service():
 def folder(files, name: str, parent: str = "") -> str:
     q = f"name = '{name.replace(chr(39), chr(92) + chr(39))}' and mimeType = '{FOLDER}' and trashed = false"
     q += f" and '{parent}' in parents" if parent else ""
-    found = files.list(q=q, fields="files(id)", spaces="drive").execute().get("files", [])
+    found = files.list(q=q, fields="files(id)", spaces="drive").execute(num_retries=3).get("files", [])
     if found:
         return found[0]["id"]
     body = {"name": name, "mimeType": FOLDER, **({"parents": [parent]} if parent else {})}
@@ -98,9 +98,9 @@ def put(files, name: str, data: bytes, station_id: str, source: str = "") -> str
     dest = folder(files, station_id, folder(files, ROOT))
     body = {"name": name, "parents": [dest], **({"appProperties": {"source": source}} if source else {})}
     media = MediaInMemoryUpload(data, mimetype=ALLOWED[ext])
-    return files.create(body=body, media_body=media, fields="id").execute()["id"]
+    return files.create(body=body, media_body=media, fields="id").execute(num_retries=3)["id"]
 
 
 def tag(files, file_id: str, source: str) -> None:
     """An existing copy of a source file (same bytes, uploaded by hand): remember the source on it."""
-    files.update(fileId=file_id, body={"appProperties": {"source": source}}).execute()
+    files.update(fileId=file_id, body={"appProperties": {"source": source}}).execute(num_retries=3)
