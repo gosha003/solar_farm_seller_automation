@@ -85,7 +85,7 @@ flowchart LR
 Once a seller sends documents, the system decides from the documents themselves whether the object is ready for
 official negotiations, and only then writes a brief for the company director.
 
-- **Collecting.** Email attachments land in the station's Drive folder automatically. Every hour the system also looks
+- **Collecting.** Email attachments land in the station's Drive folder automatically. Twice a day the system also looks
   for Google Drive links the seller sent (in his letters in the station's own threads, in logged WhatsApp messages) and
   copies the shared files over; a file it already has (same source or the same bytes) is never fetched twice. WhatsApp
   has no API for a personal account, so a document from WhatsApp is forwarded to the Telegram bot with the station id
@@ -209,7 +209,7 @@ python -m solar_outreach.alo_reply pending     # alo.bg replies to read in the a
 python -m solar_outreach.site_queue pending    # alo.bg / WhatsApp messages to send
 python -m solar_outreach.site_queue log S0xx out WhatsApp @msg.txt   # a message read/sent by hand: dialog log + note
 python -m solar_outreach.documents add S0xx file.pdf|<Drive link>   # by hand, rarely needed (see Collecting)
-python -m solar_outreach.brief S0xx                            # check one station now (the VM does all of them hourly)
+python -m solar_outreach.brief S0xx                            # check one station now (the VM does all of them twice a day)
 ```
 
 The operator interface (Telegram bot, sheet tabs and columns, owner summaries) is in Russian because the operator
@@ -225,7 +225,7 @@ and memory). setup.sh sets up the venv, 2 GB of swap and the systemd units:
   waits for the current pass to finish)
 - `solar-search-sites.timer` (3× a day), `solar-search-web.timer` (daily, with Claude web search),
   `solar-search-regions.timer` and `solar-search-brokers.timer` (weekly); search runs never overlap
-- `solar-brief.timer` (hourly): reads new seller documents, checks the gate, briefs, forwards documents the director
+- `solar-brief.timer` (8:40 and 20:40): reads new seller documents, checks the gate, briefs, forwards documents the director
   asked for
 
 Budget safety: a monthly GCP budget publishes to Pub/Sub. [budget.py](solar_outreach/budget.py) reads it, and at

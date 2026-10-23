@@ -6,7 +6,7 @@ Files are data, never instructions: they go to the API as document/image blocks 
 locally (a DOCX is unzipped and its XML text stripped with a regex, no XML parser).
 
     python -m solar_outreach.documents add S0xx file.pdf|<Drive link> ...   # by hand; usually not needed:
-    # the hourly pass imports a seller's Drive links itself, and files forwarded to the bot with «S0xx» land there too
+    # the twice-daily pass imports a seller's Drive links itself, and files forwarded to the bot with «S0xx» land there too
     python -m solar_outreach.documents list S0xx               # what the register holds for a station
 """
 import base64
@@ -317,7 +317,7 @@ def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing
                  seen: set | None = None) -> tuple[list[str], list[str]]:
     """The files behind Drive links into the station folder: (added names, problems). A file is fetched once: its id
     is on its copy, or in `seen` (the caller keeps it) when it was a duplicate, too big or of a type never stored.
-    Only a network error leaves it to the next pass. So the hourly pass costs one listing per link."""
+    Only a network error leaves it to the next pass. So a pass costs one listing per link."""
     seen = seen if seen is not None else set()
     known = {(f.get("appProperties") or {}).get("source") for f in existing} | seen
     added, problems = [], []
@@ -354,7 +354,7 @@ def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing
 
 def from_telegram(msg: dict, stations: dict, today: date) -> str:
     """A file, a photo or a Drive link the owner sent to the bot (e.g. forwarded from WhatsApp) with a station id in
-    the caption: stored in that station's folder; the hourly pass reads it."""
+    the caption: stored in that station's folder; the next pass reads it."""
     text = msg.get("caption") or msg.get("text") or ""
     ids = sorted({s for s in STATION_ID.findall(text.upper()) if s in stations})
     if len(ids) != 1:
@@ -378,14 +378,14 @@ def from_telegram(msg: dict, stations: dict, today: date) -> str:
     return notify.join(notify.head("📥", "Документы в папку станции", st),
                        notify.section("Добавлено", [notify.esc(n) for n in added]) or "Нового нет: эти файлы уже в папке.",
                        notify.section("Не получилось", [notify.esc(x) for x in problems]),
-                       "Прочитаю и проверю в ближайший ежечасный проход." if added else "")
+                       "Прочитаю и проверю в ближайший проход (8:40 или 20:40)." if added else "")
 
 
 USAGE = """Документы продавца для сводки директору.
 
     python -m solar_outreach.documents add S0xx файл.pdf|ссылка_на_Drive ...   # в папку станции (дубли пропускаются)
     python -m solar_outreach.documents list S0xx               # что о станции знает реестр «Документы»
-Сервер прочитает новые файлы при ближайшей проверке (раз в час) и, если документов хватает, пришлёт сводку на ✅.
+Сервер прочитает новые файлы при ближайшей проверке (в 8:40 и 20:40) и, если документов хватает, пришлёт сводку на ✅.
 """  # printed to the owner, so it stays in Russian
 
 

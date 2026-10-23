@@ -1,4 +1,4 @@
-"""Documents from other channels: a seller's Google Drive link (imported by the hourly pass) and files the owner
+"""Documents from other channels: a seller's Google Drive link (imported by the twice-daily pass) and files the owner
 forwards to the bot with a station id. Made-up ids and files only."""
 import hashlib
 from datetime import date
@@ -103,7 +103,7 @@ def test_the_bot_routes_files_and_links_but_not_a_draft_edit(monkeypatch):
     assert got == []
 
 
-def test_the_hourly_pass_imports_drive_links_from_the_sellers_own_thread(monkeypatch):
+def test_the_pass_imports_drive_links_from_the_sellers_own_thread(monkeypatch):
     sent = []
     monkeypatch.setattr(brief.notify, "send", lambda text, buttons=None: sent.append(text) or 1)
     monkeypatch.setattr(gmail_client, "service", lambda: None)
