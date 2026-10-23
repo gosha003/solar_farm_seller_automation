@@ -26,8 +26,8 @@ def parse_ad(url: str, html: str) -> Listing:
     """HTML, not JSON-LD: bazar's JSON-LD comes in different shapes (Service / @graph); the page markup is more stable."""
     soup = BeautifulSoup(html, "html.parser")
     h1 = soup.select_one("h1.classifiedTitle") or soup.find("h1")
-    if h1 and h1.span:
-        h1.span.decompose()  # «Обява 54043039»
+    for s in h1.find_all("span", string=re.compile(r"Обява\s*\d+")) if h1 else []:
+        s.decompose()  # «→ Обява 54043039»; the title itself may sit in a span too (itemprop="name")
     desc = soup.find(itemprop="description")
     price = soup.select_one(".price-value") or soup.select_one(".price")
     loc = soup.select_one(".location")
