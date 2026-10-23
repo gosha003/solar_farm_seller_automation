@@ -9,7 +9,7 @@ owner it does, and the result goes back to him as a reply in the thread he wrote
       seller inside the existing conversation (brief.doc_request; auto mode sends it, even into a conversation the owner
       leads, because the director asked). An outright rejection closes the station as «отказ», with an «Отказы» row
       keyed to the listing only, so the seller's other objects stay open. The director gets a short reply on what was done.
-  deliver (brief timer, hourly): documents and seller answers that arrive after such a request go to the director
+  deliver (brief timer, twice a day): documents and seller answers that arrive after such a request go to the director
       as a reply in his thread, the new files attached, for OPEN_DAYS.
 """
 import json
@@ -210,7 +210,7 @@ def replies(api, sid, svc, today: date | None = None) -> int:
 
 
 def deliver(api, sid, today: date | None = None) -> str:
-    """Hourly, after the documents pass: new files and seller answers since the director's request go to him in his
+    """After each documents pass (twice a day): new files and seller answers since the director's request go to him in his
     thread. Stops after OPEN_DAYS or when the station is closed."""
     with single_run("sheet", wait=600):  # the bot's pass writes the same «Сводки» rows
         return _deliver(api, sid, load_config(), today or date.today())

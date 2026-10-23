@@ -1,6 +1,6 @@
 """Director briefs: an object goes to the director only when its documents prove it is ready for official negotiations.
 
-A pass (systemd timer, hourly):
+A pass (systemd timer, twice a day at 8:40 and 20:40 Toronto time):
   1. documents.refresh reads new files in the candidates' Drive folders into «Документы».
   2. gate() checks in code, from those records only, the strict document set: a project needs a building permit that
      is in force (3 years to start building, a site-opening protocol after that), a final grid contract whose deadline
