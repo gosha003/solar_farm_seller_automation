@@ -1,4 +1,5 @@
 import base64
+import re
 from types import SimpleNamespace
 
 from solar_outreach import gmail_client as gmail
@@ -168,10 +169,15 @@ def test_his_letters_older_than_the_brief_are_not_replies_to_it():
         return {**msg(frm=frm, labels=labels_, id=mid), "internalDate": str(when)}
     t = {"messages": [at("old", "director@example.com", 100),                    # a personal letter from before
                       at("brief", "owner@example.com", 200, ("SENT", "D1")),
-                      at("new", "director@example.com", 300)]}
+                      at("new", "director@example.com", 300)]}                   # his reply has no label
+
+    def listing(userId, labelIds, q="", maxResults=100):  # Gmail: labelIds and q must match one and the same message
+        frm = re.search(r"from:\((.+?)\)", q)
+        hit = any(set(labelIds) <= set(m["labelIds"]) and (not frm or frm[1] in m["payload"]["headers"][0]["value"])
+                  for m in t["messages"])
+        return ex({"threads": [{"id": "t"}] if hit else []})
     svc = SimpleNamespace(labels=lambda: SimpleNamespace(list=lambda **k: ex({"labels": labels})),
-                          threads=lambda: SimpleNamespace(list=lambda **k: ex({"threads": [{"id": "t"}]}),
-                                                          get=lambda userId, id, format: ex(t)))
+                          threads=lambda: SimpleNamespace(list=listing, get=lambda userId, id, format: ex(t)))
     assert [m["id"] for m in gmail.replies_from(svc, "director@example.com", "SolarBG/директор")] == ["new"]
 
 

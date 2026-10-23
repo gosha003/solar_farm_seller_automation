@@ -123,9 +123,10 @@ def replies_from(svc, sender: str, label: str) -> list[dict]:
     Only those threads are read; marked with mark_internal once handled."""
     lab, done = label_ids(svc, label)
     out = []
-    # the query only narrows the listing (search writes a nested label with «-»); the check below decides
-    q = f"from:({sender}) -label:" + re.sub(r"[\s/]", "-", label + DONE_SUFFIX)  # no backslash in f-strings on 3.11
-    for t in svc.threads().list(userId="me", labelIds=[lab], q=q, maxResults=100).execute().get("threads", []):
+    # no from: query: Gmail matches labelIds and q against one and the same message, and only our brief carries the
+    # label, not his reply in its thread. All labelled threads are read; the check below decides
+    # ponytail: one page of 100 labelled threads; page through them once there are more briefs than that
+    for t in svc.threads().list(userId="me", labelIds=[lab], maxResults=100).execute().get("threads", []):
         msgs = svc.threads().get(userId="me", id=t["id"], format="full").execute().get("messages", [])
         # only from the first labelled message on (our brief, or the letter that brought an old thread in): his
         # older letters in a conversation he later answered about an object are not replies to anything
