@@ -76,7 +76,7 @@ def test_a_file_forwarded_to_the_bot_lands_in_the_station_folder(monkeypatch, dr
     stations = {"S500": {"id": "S500", "статус переписки": "ждём ответа", "отбор": "кандидат"}}
     doc = {"document": {"file_id": "f1", "file_unique_id": "u1", "file_name": "Анекс.pdf"}}
     reply = documents.from_telegram([{**doc, "caption": "s500 от продавца"}], stations, TODAY)
-    assert put == [("Анекс.pdf", "S500", "tg:u1")] and "Добавлено" in reply and "8:40" in reply
+    assert put == [("Анекс.pdf", "S500", "tg:u1")] and "Добавлено" in reply and "12:55" in reply
     assert "Куда положить" in documents.from_telegram([doc], stations, TODAY) and len(put) == 1   # no station id: asked
     photo = {"photo": [{"file_id": "p1", "file_unique_id": "ph1aaaa", "file_size": 10},
                        {"file_id": "p2", "file_unique_id": "ph2bbbb", "file_size": 99}], "caption": "S500"}
@@ -99,7 +99,7 @@ def test_the_bot_answers_what_really_happened(monkeypatch, drive_fake):
     assert "уже в папке" not in reply and "не принимается" in reply             # not «nothing new»: it wasn't stored
     pdf = {"document": {"file_id": "p", "file_unique_id": "up", "file_name": "Акт.pdf"}, "caption": "S500"}
     reply = documents.from_telegram([pdf], stations, TODAY)
-    assert "Добавлено" in reply and "не в проверке документов" in reply and "8:40" not in reply   # a broker row
+    assert "Добавлено" in reply and "не в проверке документов" in reply and "12:55" not in reply   # a broker row
 
 
 def test_the_bot_routes_files_and_links_but_not_a_draft_edit(monkeypatch):

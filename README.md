@@ -78,7 +78,7 @@ flowchart LR
 6. **Engine** ([engine.py](solar_outreach/engine.py)) runs everything as an idempotent pass under a lock. In daemon
    mode on the VM it answers Telegram taps within seconds (long polling) and runs drafts and sending every minute;
    all mail (sellers' letters, bounces, alo.bg notices, the director's letters) is read twice a day (`schedule.mail`,
-   8:30 and 20:30) or on `/mail`. Follow-ups are drafted right after such a check, and a letter into a thread the
+   12:45 and 22:45) or on `/mail`. Follow-ups are drafted right after such a check, and a letter into a thread the
    seller has written in since the last check waits for the next one (the owner is told once).
 7. **Director briefs** ([documents.py](solar_outreach/documents.py), [brief.py](solar_outreach/brief.py),
    [director.py](solar_outreach/director.py)): see below.
@@ -231,7 +231,7 @@ and memory). setup.sh sets up the venv, 2 GB of swap and the systemd units:
   waits for the current pass to finish)
 - `solar-search-sites.timer` (3× a day), `solar-search-web.timer` (daily, with Claude web search),
   `solar-search-regions.timer` and `solar-search-brokers.timer` (weekly); search runs never overlap
-- `solar-brief.timer` (8:40 and 20:40): reads new seller documents, checks the gate, briefs, forwards documents the director
+- `solar-brief.timer` (12:55 and 22:55): reads new seller documents, checks the gate, briefs, forwards documents the director
   asked for
 
 Budget safety: a monthly GCP budget publishes to Pub/Sub. [budget.py](solar_outreach/budget.py) reads it, and at

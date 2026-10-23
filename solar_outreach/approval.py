@@ -334,7 +334,7 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
                 HELD.add(d["id"])
                 notify.try_send(join(head("⏳", "Письмо ждёт проверки почты", d["id станции"], d["id"]),
                                      "Продавец написал что-то новое. Сначала прочитаю его письмо при ближайшей проверке "
-                                     "почты (8:30 или 20:30), потом это письмо уйдёт или отменится."))
+                                     "почты (12:45 или 22:45), потом это письмо уйдёт или отменится."))
             continue
         if out and not dry_run():
             time.sleep(random.uniform(*cfg["limits"]["send_pause_sec"]))
