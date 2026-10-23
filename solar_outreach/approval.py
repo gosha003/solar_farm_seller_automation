@@ -124,6 +124,7 @@ def by_routine(d: dict, st: dict) -> bool:
 
 ROUTINE = "уйдёт с ПК по расписанию (alo.bg/WhatsApp), сам не отправляй"
 CAPTIONS: dict[str, str] = {}  # media group -> its caption, for the files of an album that come in a later batch
+HELD: set[str] = set()  # drafts the owner was told wait for the mail check; ponytail: per process, a restart tells again
 
 
 def site_hint(d: dict, st: dict) -> None:
@@ -327,9 +328,13 @@ def send_approved(api, sid, ds: list[dict], by_id: dict, stations: dict, cfg: di
         except Exception as e:  # a deleted thread, a Gmail blip: the send below reports a real problem itself
             print(f"{d['id']}: тред не прочитан ({type(e).__name__})", flush=True)
             held = False
-        if held:  # the seller wrote since the last mail check: the next pass reads it first (a refusal blocks this
-            # letter, an answer cancels a follow-up), then this one goes out or not
-            sheets.set_kv(api, sid, "_state", {owner.MAIL_NEEDED: "да"})
+        if held:  # the seller wrote since the last mail check: this waits for the next one, which reads his letter
+            # first (a refusal blocks this letter, an answer cancels a follow-up); mail is read only at the check times
+            if d["id"] not in HELD:
+                HELD.add(d["id"])
+                notify.try_send(join(head("⏳", "Письмо ждёт проверки почты", d["id станции"], d["id"]),
+                                     "Продавец написал что-то новое. Сначала прочитаю его письмо при ближайшей проверке "
+                                     "почты (8:30 или 20:30), потом это письмо уйдёт или отменится."))
             continue
         if out and not dry_run():
             time.sleep(random.uniform(*cfg["limits"]["send_pause_sec"]))

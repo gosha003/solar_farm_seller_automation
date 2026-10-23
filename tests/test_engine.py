@@ -44,24 +44,20 @@ def test_between_checks_the_inbox_is_left_alone_and_mail_asks_for_it(monkeypatch
     reads, sent, fresh_calls = [], [], []
     monkeypatch.setattr(engine.owner, "local_now", lambda cfg: datetime(2026, 10, 23, 15, 0))
     monkeypatch.setattr(engine.gmail_client, "service", lambda: None)
-    full_reads = lambda: [x for x in reads if not x]
-    monkeypatch.setattr(engine.inbox, "process", lambda *a, light=False, **k: reads.append(light) or {"входящих": 0})
+    monkeypatch.setattr(engine.inbox, "process", lambda *a, **k: reads.append(1) or {"входящих": 0})
     monkeypatch.setattr(engine.director, "replies", lambda *a, **k: 0)
     monkeypatch.setattr(engine.approval, "main", lambda test_n=0, full=True, fresh=True: fresh_calls.append(fresh) or 5)
     monkeypatch.setattr(engine.notify, "try_send", sent.append)
     sheet.add("_state", {"ключ": engine.MAIL_KEY, "значение": "2026-10-23T08:30"})
-    assert engine.run() == 5 and reads == [True] and fresh_calls == [False]      # 15:00: only bounces and alo notices
+    assert engine.run() == 5 and reads == [] and fresh_calls == [False]   # 15:00: no mail at all, bounces neither
     sheet.add("Настройки", {"параметр": engine.owner.MAIL_NOW, "значение": "да"})   # /mail
     engine.run()
-    assert full_reads() == [False] and fresh_calls[-1] and "Почта проверена" in sent[0]
+    assert reads == [1] and fresh_calls[-1] and "Почта проверена" in sent[0]
     assert sheet.kv("Настройки")[engine.owner.MAIL_NOW] == "нет" and sheet.kv("_state")[engine.MAIL_KEY] == "2026-10-23T15:00"
     engine.run()
-    assert full_reads() == [False]
+    assert reads == [1]
     engine.run(mail=True)                                                  # a manual single pass
-    assert full_reads() == [False, False]
-    engine.sheets.set_kv(None, None, "_state", {engine.owner.MAIL_NEEDED: "да"})  # a letter waits for new mail
-    engine.run()
-    assert full_reads() == [False] * 3 and sheet.kv("_state")[engine.owner.MAIL_NEEDED] == ""
+    assert reads == [1, 1]
 
 
 def test_a_failed_director_check_stays_due_until_the_alert(monkeypatch, sheet):
@@ -69,7 +65,7 @@ def test_a_failed_director_check_stays_due_until_the_alert(monkeypatch, sheet):
     reads, fails = [], []
     monkeypatch.setattr(engine.owner, "local_now", lambda cfg: datetime(2026, 10, 23, 8, 31))
     monkeypatch.setattr(engine.gmail_client, "service", lambda: None)
-    monkeypatch.setattr(engine.inbox, "process", lambda *a, light=False, **k: reads.append(light) or {"входящих": 0})
+    monkeypatch.setattr(engine.inbox, "process", lambda *a, **k: reads.append(1) or {"входящих": 0})
     monkeypatch.setattr(engine.approval, "main", lambda test_n=0, full=True, fresh=True: 5)
     def boom(*a, **k):
         raise engine.llm.LLMUnavailable("API: 529")
@@ -78,7 +74,7 @@ def test_a_failed_director_check_stays_due_until_the_alert(monkeypatch, sheet):
     sheet.add("_state", {"ключ": engine.MAIL_KEY, "значение": "2026-10-22T20:30"})
     for _ in range(engine.ALERT_AFTER):
         engine.run()
-    assert reads == [False] * engine.ALERT_AFTER and len(fails) == engine.ALERT_AFTER
+    assert reads == [1] * engine.ALERT_AFTER and len(fails) == engine.ALERT_AFTER
     assert sheet.kv("_state")[engine.MAIL_KEY] == "2026-10-23T08:31"    # after the alert: the next slot, not every pass
     engine.run()
-    assert reads[-1] is True
+    assert len(reads) == engine.ALERT_AFTER

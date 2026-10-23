@@ -29,7 +29,6 @@ HELP = join(head("📋", "Команды"), "\n".join([
 
 
 MAIL_NOW = "почта сейчас"  # «Настройки»: /mail asks for a mail check before the scheduled one
-MAIL_NEEDED = "почта: прочитать до отправки"  # «_state»: a letter waits for the seller's newer mail to be read
 
 class Ctx:
     """Data of one run: read once in approval.main; commands only read it and change settings."""

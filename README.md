@@ -77,10 +77,9 @@ flowchart LR
    14 categories, checklist answers go into the sheet, and anything sensitive pauses the dialog and alerts the owner.
 6. **Engine** ([engine.py](solar_outreach/engine.py)) runs everything as an idempotent pass under a lock. In daemon
    mode on the VM it answers Telegram taps within seconds (long polling) and runs drafts and sending every minute;
-   seller mail and the director's letters are read twice a day (`schedule.mail`, 8:30 and 20:30) or on `/mail`.
-   Follow-ups are drafted right after such a check. Between the checks every pass still takes bounces and alo.bg
-   notices, which need no LLM, so the bounce stop and the PC routine see them at once; and a letter into a thread the
-   seller has written in since the last check waits until the mail is read (the next pass reads it).
+   all mail (sellers' letters, bounces, alo.bg notices, the director's letters) is read twice a day (`schedule.mail`,
+   8:30 and 20:30) or on `/mail`. Follow-ups are drafted right after such a check, and a letter into a thread the
+   seller has written in since the last check waits for the next one (the owner is told once).
 7. **Director briefs** ([documents.py](solar_outreach/documents.py), [brief.py](solar_outreach/brief.py),
    [director.py](solar_outreach/director.py)): see below.
 

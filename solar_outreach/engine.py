@@ -3,10 +3,9 @@
     python -m solar_outreach.engine            # one pass (cron, debugging)
     python -m solar_outreach.engine --daemon   # VM: runs forever, answers in Telegram within seconds (systemd: solar-bot)
 
-Pass: inbox (classify, extract facts, escalate) and the director's replies to briefs, only at schedule.mail (twice a
-day), on /mail, or before a letter goes into a thread the seller has written in since -> Telegram buttons and commands,
-drafts, sending within limits, digest (every pass); follow-ups are drafted only right after a mail check. Between the
-checks every pass still takes bounces and alo.bg notices (no LLM): the bounce stop and the PC routine rely on them.
+Pass: all mail (sellers' letters, bounces, alo.bg notices, the director's letters) only at schedule.mail (twice a day)
+or on /mail -> Telegram buttons and commands, drafts, sending within limits, digest (every pass); follow-ups are drafted
+only right after a mail check, and a letter into a thread the seller has written in since waits for the next check.
 Search is a separate timed process, `python -m solar_outreach.search`: it is slow (polite pauses between site requests).
 """
 import os
@@ -52,12 +51,11 @@ def run(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> i
         now = owner.local_now(cfg).replace(tzinfo=None)
         state = sheets.kv(api, sid, "_state")
         if mail is None:
-            mail = asked or state.get(owner.MAIL_NEEDED, {}).get("значение") == "да" or mail_due(
-                now, state.get(MAIL_KEY, {}).get("значение", ""), cfg["schedule"]["mail"])
-        stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto", light=not mail)
-        if stats["входящих"]:
-            print("входящие:", stats, flush=True)
+            mail = asked or mail_due(now, state.get(MAIL_KEY, {}).get("значение", ""), cfg["schedule"]["mail"])
         if mail:
+            stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
+            if stats["входящих"]:
+                print("входящие:", stats, flush=True)
             if stats.get("LLM недоступен"):  # replies wait unread and the check is due again: retried every pass
                 res = approval.main(test_n, full=False, fresh=False)
                 failure(f"LLM недоступен: {stats['LLM недоступен']}")
@@ -68,7 +66,7 @@ def run(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> i
                 print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
                 if failure(f"директор: {type(e).__name__}: {str(e)[:200]}") < ALERT_AFTER:
                     return approval.main(test_n, full=False)
-            sheets.set_kv(api, sid, "_state", {MAIL_KEY: now.isoformat(timespec="minutes"), owner.MAIL_NEEDED: ""})
+            sheets.set_kv(api, sid, "_state", {MAIL_KEY: now.isoformat(timespec="minutes")})
             if asked:  # the owner's /mail: the flag goes, and he hears back even when nothing came
                 sheets.set_kv(api, sid, "Настройки", {owner.MAIL_NOW: "нет"})
                 notify.try_send(notify.join(notify.head("📬", "Почта проверена"),

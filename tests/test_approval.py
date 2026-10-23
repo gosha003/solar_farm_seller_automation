@@ -136,8 +136,10 @@ def test_a_letter_into_a_thread_with_unread_seller_mail_waits_for_the_mail(monke
     d = {**approval.make_draft(EMAIL_ST, "D020", test=False), "статус": "одобрено", "тип": "дожим 1", "тред Gmail": "t9"}
     cfg = {"limits": {"send_pause_sec": [0, 0]}}
     approval.send_approved(None, None, [d], {"D020": d}, {"S001": dict(EMAIL_ST)}, cfg)
-    assert sent == [] and d["статус"] == "одобрено" and sheet.kv("_state")[approval.owner.MAIL_NEEDED] == "да"
-    unread.clear()                                                   # the next pass has read the seller's letter
+    approval.send_approved(None, None, [d], {"D020": d}, {"S001": dict(EMAIL_ST)}, cfg)
+    assert sent == [] and d["статус"] == "одобрено" and sheet.tabs["_state"] == []      # waits; no mail read off-schedule
+    assert sum("ждёт проверки почты" in t for t in tg) == 1                            # the owner is told once
+    unread.clear()                                                   # the scheduled check has read the seller's letter
     approval.send_approved(None, None, [d], {"D020": d}, {"S001": dict(EMAIL_ST)}, cfg)
     assert sent == ["s@abv.bg"]
 
