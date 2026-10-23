@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from solar_outreach import brief, inbox, llm, sheets
+from solar_outreach import brief, documents, inbox, llm, sheets
 from solar_outreach.notify import b, code, esc, head, i, join, link, num, section
 
 ID = i("id станции")
@@ -29,6 +29,7 @@ HELP = join(head("📋", "Команды"), "\n".join([
 
 
 MAIL_NOW = "почта сейчас"  # «Настройки»: /mail asks for a mail check before the scheduled one
+MAIL_NEEDED = "почта: прочитать до отправки"  # «_state»: a letter waits for the seller's newer mail to be read
 
 class Ctx:
     """Data of one run: read once in approval.main; commands only read it and change settings."""
@@ -287,8 +288,10 @@ def note(c: Ctx, station_id: str, text: str, today: date) -> str:
     category, t = inbox.decide(cl.category, cl.confidence, text), today.isoformat()
     got = inbox.apply_facts(st, cl) if category != "suspicious" else []  # as in inbox: no facts from a manipulative text
     st["последний контакт"] = t
+    links = " ".join(dict.fromkeys(documents.DRIVE_URL.findall(text)))  # the summary drops them; brief.harvest reads this row
     c.new_dialogs.append({"id станции": st["id"], "направление": "in", "дата": t, "канал": "вручную",
-                          "язык": cl.language, "краткое содержание": f"[{category}] {cl.summary_ru}", "тред Gmail": ""})
+                          "язык": cl.language, "краткое содержание": f"[{category}] {cl.summary_ru}"
+                          + (f" Ссылки: {links}" if links else ""), "тред Gmail": ""})
 
     def reply(emoji: str, title: str, *tail: str) -> str:
         return join(head(emoji, title, st["id"], category), esc(cl.summary_ru),

@@ -6,7 +6,7 @@ from solar_outreach import drive
 class FakeFiles:
     def __init__(self):
         self.created = []
-        ex = lambda v: SimpleNamespace(execute=lambda: v)
+        ex = lambda v: SimpleNamespace(execute=lambda **k: v)
         self.list = lambda **k: ex({"files": []})
 
         def create(body, fields, media_body=None):

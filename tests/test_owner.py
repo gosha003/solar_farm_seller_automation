@@ -115,6 +115,16 @@ def test_digest_flags_dead_sources_and_stuck_items(monkeypatch):
     assert "⏳ Не прочитан ответ на alo.bg: S019 (3 дн.)" in lines and "⏳ Черновики без решения: D002 (4 дн.)" in lines
 
 
+def test_note_keeps_a_drive_link_for_the_documents_pass(monkeypatch):
+    c = ctx(monkeypatch)
+    cl = owner.llm.Classification(category="info_provided", language="bg", summary_ru="прислал документы",
+                                  seller_questions=[], new_contact="", confidence="high", facts=[])
+    monkeypatch.setattr(owner.llm, "classify", lambda text, st: cl)
+    monkeypatch.setattr(owner.inbox, "reply_body", lambda st, c: "Благодаря")
+    owner.command("/note S019 Ето ги: https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp?usp=sharing", c, DAY)
+    assert owner.documents.drive_links(c.new_dialogs[0]["краткое содержание"]) == [("folder", "1AbCdEfGhIjKlMnOp")]
+
+
 def test_note_on_a_paused_dialog_records_but_does_not_draft(monkeypatch):
     c = ctx(monkeypatch)
     c.stations["S019"]["статус переписки"] = "эскалация"

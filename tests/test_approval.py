@@ -127,6 +127,34 @@ def test_limits_per_run_and_per_day_but_replies_unlimited(monkeypatch, tg, sheet
     assert sent == []                                                   # daily cap
 
 
+def test_a_letter_into_a_thread_with_unread_seller_mail_waits_for_the_mail(monkeypatch, tg, sheet):
+    monkeypatch.setenv("DRY_RUN", "false")
+    sent, unread = [], {"t9"}
+    monkeypatch.setattr(approval.gmail, "service", lambda: None)
+    monkeypatch.setattr(approval.gmail, "send", lambda svc, to, *a: sent.append(to) or {"id": "m", "threadId": "t9"})
+    monkeypatch.setattr(approval.gmail, "unread_in", lambda svc, t: t in unread)
+    d = {**approval.make_draft(EMAIL_ST, "D020", test=False), "статус": "одобрено", "тип": "дожим 1", "тред Gmail": "t9"}
+    cfg = {"limits": {"send_pause_sec": [0, 0]}}
+    approval.send_approved(None, None, [d], {"D020": d}, {"S001": dict(EMAIL_ST)}, cfg)
+    assert sent == [] and d["статус"] == "одобрено" and sheet.kv("_state")[approval.owner.MAIL_NEEDED] == "да"
+    unread.clear()                                                   # the next pass has read the seller's letter
+    approval.send_approved(None, None, [d], {"D020": d}, {"S001": dict(EMAIL_ST)}, cfg)
+    assert sent == ["s@abv.bg"]
+
+
+def test_a_thread_that_cant_be_read_never_stops_the_pass(monkeypatch, tg, sheet):
+    monkeypatch.setenv("DRY_RUN", "false")
+    sent = []
+    monkeypatch.setattr(approval.gmail, "service", lambda: None)
+    monkeypatch.setattr(approval.gmail, "send", lambda svc, to, *a: sent.append(to) or {"id": "m", "threadId": "t9"})
+    def gone(svc, t):
+        raise OSError("HttpError 404")
+    monkeypatch.setattr(approval.gmail, "unread_in", gone)
+    d = {**approval.make_draft(EMAIL_ST, "D021", test=False), "статус": "одобрено", "тип": "дожим 1", "тред Gmail": "t9"}
+    approval.send_approved(None, None, [d], {"D021": d}, {"S001": dict(EMAIL_ST)}, {"limits": {"send_pause_sec": [0, 0]}})
+    assert sent == ["s@abv.bg"]                                       # the send itself reports a real problem
+
+
 def test_bounce_stop_switches_to_manual(monkeypatch, tg):
     urgent = []
     monkeypatch.setattr(approval.notify, "urgent", urgent.append)

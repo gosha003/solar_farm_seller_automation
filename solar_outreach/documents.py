@@ -214,13 +214,13 @@ def refresh(api, sid, files_by_station: dict[str, list[dict]], stations: set[str
     return n
 
 
-def confirm_station(api, sid, station: str, files_svc, today: date) -> int:
+def confirm_station(api, sid, station: str, files_svc, today: date, present: dict | None = None) -> int:
     """Before anything goes to the director: every readable file of the station is read again by the review model,
     which checks the first reading field by field and returns corrected records; the row is rewritten and marked.
     One reader's slip (a date, a deadline, «signed») never decides alone. LLMError propagates: unconfirmed records
-    never make a brief."""
+    never make a brief. present: station -> the ids now in its folder (a file deleted or moved away is not read)."""
     rows = [r for r in sheets.read(api, sid, "Документы") if r["id станции"] == station and r["тип"] != UNREAD
-            and CONFIRMED not in r["проверено"]]
+            and CONFIRMED not in r["проверено"] and (present is None or r["id файла"] in present.get(station, ()))]
     for r in rows:
         content, why = blocks(r["файл"], drive.download(files_svc, r["id файла"]))
         if content is None:
@@ -233,11 +233,14 @@ def confirm_station(api, sid, station: str, files_svc, today: date) -> int:
     return len(rows)
 
 
-def records(rows: list[dict]) -> dict[str, list[dict]]:
+def records(rows: list[dict], present: dict | None = None) -> dict[str, list[dict]]:
     """Station id -> its documents as dicts, each with «file» (name), «file_id», «link» and «confirmed» (re-read by the
-    second model); unreadable files as {"type": "не прочитан", ...} so a brief can name them."""
+    second model); unreadable files as {"type": "не прочитан", ...} so a brief can name them. present: station -> the
+    ids now in its folder; a file deleted or moved out of it (filed under the wrong station, say) no longer counts."""
     out: dict[str, list[dict]] = {}
     for r in rows:
+        if present is not None and r["id файла"] not in present.get(r["id станции"], ()):
+            continue
         try:
             docs = json.loads(r["данные"] or "[]")
         except ValueError:
@@ -314,34 +317,41 @@ def store(files_svc, station: str, name: str, data: bytes, source: str, existing
 
 
 def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing: list[dict],
-                 seen: set | None = None) -> tuple[list[str], list[str]]:
-    """The files behind Drive links into the station folder: (added names, problems). A file is fetched once: its id
-    is on its copy, or in `seen` (the caller keeps it) when it was a duplicate, too big or of a type never stored.
-    Only a network error leaves it to the next pass. So a pass costs one listing per link."""
+                 seen: set | None = None) -> tuple[list[str], list[str], list[str]]:
+    """The files behind Drive links into the station folder: (added names, problems, retried later). A file is fetched
+    once: its id is on its copy, or in `seen` (the caller keeps it) when it was a duplicate, too big, not shared or of
+    a type never stored; such a problem is reported once, when its id goes into `seen`. A network or Drive error is
+    «later»: tried again next pass. So a pass costs one listing per link."""
     seen = seen if seen is not None else set()
     known = {(f.get("appProperties") or {}).get("source") for f in existing} | seen
-    added, problems = [], []
+    added, problems, later = [], [], []
+
+    def once(iid: str, why: str) -> None:
+        seen.add(iid)
+        known.add(iid)
+        problems.append(why)
     for kind, lid in links:
         try:
             items = folder_items(lid) if kind == "folder" else [(lid, "")]
         except requests.RequestException as e:
-            problems.append(f"папка по ссылке не открылась ({type(e).__name__})")
+            later.append(f"папка по ссылке не открылась ({type(e).__name__})")
             continue
+        if not items and lid not in known:  # a folder not shared with the link looks empty from outside
+            once(lid, "папка по ссылке пуста или закрыта")
         for iid, name in items:
             if iid in known:
                 continue
-            if name and Path(name).suffix.lower() not in drive.ALLOWED:
-                seen.add(iid)  # drawings, archives: never stored
+            if name and Path(name).suffix.lower() not in drive.ALLOWED:  # drawings, spreadsheets, archives
+                once(iid, f"{name}: тип {Path(name).suffix or '?'} не принимается")
                 continue
             try:
                 real, data = fetch(iid)
                 res = store(files_svc, station, real, data, iid, existing)
-            except requests.RequestException as e:  # transient: tried again next pass
-                problems.append(f"{name or iid}: {type(e).__name__}")
+            except ValueError as e:  # too big, not shared
+                once(iid, f"{name or iid}: {e}")
                 continue
-            except ValueError as e:  # too big, not shared: told once
-                seen.add(iid)
-                problems.append(f"{name or iid}: {e}")
+            except Exception as e:  # the network, Drive quota or storage: tried again next pass
+                later.append(f"{name or iid}: {type(e).__name__}")
                 continue
             seen.add(iid)
             known.add(iid)
@@ -349,36 +359,45 @@ def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing
                 added.append(real)
             elif res != "same":
                 problems.append(f"{real}: {res}")
-    return added, problems
+    return added, problems, later
 
 
-def from_telegram(msg: dict, stations: dict, today: date) -> str:
-    """A file, a photo or a Drive link the owner sent to the bot (e.g. forwarded from WhatsApp) with a station id in
-    the caption: stored in that station's folder; the next pass reads it."""
-    text = msg.get("caption") or msg.get("text") or ""
+def from_telegram(msgs: list[dict], stations: dict, today: date, caption: str = "") -> str:
+    """Files, photos or a Drive link the owner sent to the bot (e.g. forwarded from WhatsApp; several at once come as
+    an album with one caption) with a station id in the caption: stored in that station's folder, one reply for all.
+    The next pass reads them."""
+    from solar_outreach import brief  # brief imports this module
+    text = caption or next((m.get("caption") or m.get("text") for m in msgs if m.get("caption") or m.get("text")), "")
     ids = sorted({s for s in STATION_ID.findall(text.upper()) if s in stations})
     if len(ids) != 1:
-        return notify.join(notify.head("📥", "Куда положить документ?"),
+        return notify.join(notify.head("📥", "Куда положить документ?" if len(msgs) == 1 else
+                                       f"Куда положить {len(msgs)} файла(ов)?"),
                            f"Пришли файл или ссылку на Drive ещё раз с подписью — номером станции, например "
                            f"{notify.code('S138')}.")
     st, files_svc = ids[0], drive.service()
     existing = drive.station_files(files_svc).get(st, [])
     added, problems = [], []
-    doc = msg.get("document") or (max(msg["photo"], key=lambda p: p.get("file_size", 0)) if msg.get("photo") else None)
-    if doc:
-        name = doc.get("file_name") or f"фото {today:%d.%m} {doc['file_unique_id'][:6]}.jpg"
-        try:
-            res = store(files_svc, st, name, notify.download(doc["file_id"]), f"tg:{doc['file_unique_id']}", existing)
-        except Exception as e:  # too big for the Bot API (20 MB), Telegram down
-            res = f"не скачался ({type(e).__name__})"
-        added += [name] if res == "added" else []
-        problems += [] if res in ("added", "same") else [f"{name}: {res}"]
-    a, p = import_drive(files_svc, st, drive_links(text), existing)
-    added, problems = added + a, problems + p
+    for msg in msgs:
+        doc = msg.get("document") or (max(msg["photo"], key=lambda p: p.get("file_size", 0)) if msg.get("photo") else None)
+        if doc:
+            name = doc.get("file_name") or f"фото {today:%d.%m} {doc['file_unique_id'][:6]}.jpg"
+            try:
+                res = store(files_svc, st, name, notify.download(doc["file_id"]), f"tg:{doc['file_unique_id']}", existing)
+            except Exception as e:  # too big for the Bot API (20 MB), Telegram or Drive down
+                res = f"не скачался ({type(e).__name__})"
+            added += [name] if res == "added" else []
+            problems += [] if res in ("added", "same") else [f"{name}: {res}"]
+    a, p, later = import_drive(files_svc, st, drive_links(text), existing)
+    added, problems = added + a, problems + p + later
+    read = ("Прочитаю и проверю в ближайший проход (8:40 или 20:40)." if brief.in_deal(stations[st]) else
+            f"Файлы в папке, но {st} не в проверке документов: она идёт у станций в живой переписке с отбором "
+            f"«кандидат» или «исключение владельца» (сейчас: «{notify.esc(stations[st]['статус переписки'])}», "
+            f"«{notify.esc(stations[st]['отбор'])}»).")
     return notify.join(notify.head("📥", "Документы в папку станции", st),
-                       notify.section("Добавлено", [notify.esc(n) for n in added]) or "Нового нет: эти файлы уже в папке.",
+                       notify.section("Добавлено", [notify.esc(n) for n in added])
+                       or ("" if problems else "Нового нет: эти файлы уже в папке."),
                        notify.section("Не получилось", [notify.esc(x) for x in problems]),
-                       "Прочитаю и проверю в ближайший проход (8:40 или 20:40)." if added else "")
+                       read if added else "")
 
 
 USAGE = """Документы продавца для сводки директору.
@@ -397,8 +416,8 @@ if __name__ == "__main__":
         existing = drive.station_files(svc).get(st, [])
         for x in a[2:]:
             if drive_links(x):
-                added, problems = import_drive(svc, st, drive_links(x), existing)
-                print(f"{x}: добавлено {len(added)}" + "".join(f"; не получилось: {p}" for p in problems))
+                added, problems, later = import_drive(svc, st, drive_links(x), existing)
+                print(f"{x}: добавлено {len(added)}" + "".join(f"; не получилось: {p}" for p in problems + later))
             else:
                 res = store(svc, st, Path(x).name, Path(x).read_bytes(), f"local:{Path(x).name}", existing)
                 print(f"{Path(x).name}: " + {"added": "загружено", "same": "уже есть в папке"}.get(res, res))

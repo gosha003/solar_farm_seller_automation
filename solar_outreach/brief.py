@@ -421,19 +421,26 @@ def threads_of(history: list[dict], mine: list[dict]) -> list[str]:
     return list(dict.fromkeys(x["тред Gmail"] for x in [*history, *mine] if x.get("тред Gmail")))
 
 
-def route(st: dict, msg: dict | None, lang: str) -> dict:
-    """Where the request goes: a reply in this station's own thread (gmail.send threads it under the last message
-    itself, so no Message-ID is stored that inbox would take as already answered), else a new email, else the
-    station's manual channel (WhatsApp, Viber, alo.bg) through «Ручная очередь»."""
+def route(st: dict, msg: dict | None, lang: str, history: list[dict] = (), mine: list[dict] = ()) -> dict:
+    """Where the request goes: where the seller last answered. A WhatsApp/Viber/alo.bg answer (logged by hand) gets
+    it through «Ручная очередь» the way /note replies go. Otherwise a reply in this station's own thread (gmail.send
+    threads it under the last message itself, so no Message-ID is stored that inbox would take as already
+    answered), under our own letter when he never wrote by email, a new email only when there is no thread at all."""
+    ins = [r for r in history if r["направление"] == "in"]
+    if ins and ins[-1]["канал"] != "email" or st["канал"] != "email" and not msg:
+        channel, to = inbox.manual_channel(st)
+        return {"канал": channel, "кому": to, "тема": ""}
+    clean = lambda subject: re.sub(r"^\s*((re|fw|fwd|отн)\s*:\s*)+", "", subject, flags=re.I)
     if msg:
-        subject = re.sub(r"^\s*((re|fw|fwd|отн)\s*:\s*)+", "", gmail.header(msg, "Subject"), flags=re.I)
         return {"канал": "email", "кому": parseaddr(gmail.header(msg, "From"))[1], "тред Gmail": msg["threadId"],
-                "тема": f"Re: {subject}"}
-    if st["канал"] == "email":
-        ref = drafts.description(st, lang)[1]
-        return {"канал": "email", "кому": st["email"].split(",")[0].strip(),
-                "тема": {"bg": f"Документи - {ref}", "en": f"Documents - {ref}", "ru": f"Документы - {ref}"}[lang]}
-    return {"канал": st["канал"], "кому": approval.contact(st), "тема": ""}
+                "тема": f"Re: {clean(gmail.header(msg, 'Subject'))}"}
+    ours = [d for d in mine if d.get("тред Gmail") and d["статус"] == "отправлено" and d["канал"] == "email"]
+    if ours:
+        return {"канал": "email", "кому": ours[-1]["кому"].split(",")[0].strip(), "тред Gmail": ours[-1]["тред Gmail"],
+                "тема": f"Re: {clean(ours[-1]['тема'])}"}
+    ref = drafts.description(st, lang)[1]
+    return {"канал": "email", "кому": st["email"].split(",")[0].strip(),
+            "тема": {"bg": f"Документи - {ref}", "en": f"Documents - {ref}", "ru": f"Документы - {ref}"}[lang]}
 
 
 def request_block(st: dict, mine: list[dict], history: list[dict], last: dict | None, fp: str, cfg: dict,
@@ -477,7 +484,7 @@ def doc_request(st: dict, requests: list[str], docs: list[dict], history: list[d
             msg = gmail.last_in_threads(gmail.service(), threads)
         except Exception as e:  # no readable thread: a new email or the manual channel
             print(f"brief: Gmail {st['id']}: {type(e).__name__}", flush=True)
-    where = route(st, msg, lang)
+    where = route(st, msg, lang, history, mine)
     email = where["канал"] == "email"
     previous = "\n".join(f"{d['дата']} {d['статус']}: {d['текст'][:600]}" for d in mine
                          if d["тип"].startswith(DOC_REQUEST)) or "-"
@@ -509,12 +516,15 @@ def fingerprint(st: dict, docs: list[dict], history: list[dict], cfg: dict) -> s
     return "fp" + hashlib.sha1(key.encode()).hexdigest()[:10]
 
 
+def in_deal(st: dict) -> bool:
+    """In a live conversation and passed the criteria (or an owner exception): its documents are read and briefed."""
+    return st["статус переписки"] not in CLOSED and (st["отбор"] == "кандидат" or "исключение владельца" in st["отбор"])
+
+
 def candidate(st: dict, files: list | None) -> bool:
-    """In a live conversation, passed the criteria (or an owner exception), with documents in its Drive folder. Without
-    files nothing is requested: documents may have come by a Drive link or WhatsApp (`documents add` brings them in)."""
-    if st["статус переписки"] in CLOSED or not (st["отбор"] == "кандидат" or "исключение владельца" in st["отбор"]):
-        return False
-    return bool(files)
+    """In a deal, with documents in its Drive folder. Without files nothing is requested: documents may have come by
+    a Drive link or WhatsApp (harvest and the bot bring them in)."""
+    return in_deal(st) and bool(files)
 
 
 def problem_lines(problems: list[tuple[str, str]]) -> str:
@@ -604,14 +614,17 @@ def send_card(st: dict, r: dict, row_no: int, b: Brief, notes: list[str], sizes:
     return notify.send(tail, [[("✅ Директору", f"b:{row_no}:{st['id']}"), ("⏭ Не отправлять", f"bx:{row_no}:{st['id']}")]])
 
 
-def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files: dict, files_svc, seen: set) -> int:
+def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files: dict, files_svc,
+            seen: dict[str, set]) -> int:
     """Google Drive links a seller sent (in his letters in the station's own Gmail threads, in a logged WhatsApp
-    message, in the station note) bring their files into the station folder, for every station in a live deal.
-    The system's own Drive links (saved attachments) are skipped. Returns how many files were added."""
+    message, in the station note) bring their files into the station folder, for every station in a deal.
+    The system's own Drive links (saved attachments) are skipped. seen: station -> Drive ids already handled.
+    A file that can't be taken (not shared, too big, a type never stored) is told to the owner once.
+    Returns how many files were added."""
     ours = {f["id"] for fs in files.values() for f in fs}
     gsvc, total = None, 0
     for k, st in stations.items():
-        if st["статус переписки"] in CLOSED or not (st["отбор"] == "кандидат" or "исключение владельца" in st["отбор"]):
+        if not in_deal(st):
             continue
         history = [r for r in dialogs if r["id станции"] == k]
         texts = [r["краткое содержание"] for r in history] + [st.get("примечание", "")]
@@ -624,16 +637,19 @@ def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files:
         links = [x for x in docs_.drive_links("\n".join(texts)) if x[1] not in ours]
         if not links:
             continue
-        added, problems = docs_.import_drive(files_svc, k, links, files.setdefault(k, []), seen)
-        for p in problems:
+        added, problems, later = docs_.import_drive(files_svc, k, links, files.setdefault(k, []), seen.setdefault(k, set()))
+        for p in problems + later:
             print(f"brief: Drive {k}: {p}", flush=True)
-        if added:
-            total += len(added)
-            notify.send(join(head("📥", "Документы с Drive продавца", k, st["заголовок"][:60]),
-                             section(f"Добавлено в папку станции: {len(added)}", [esc(n) for n in added[:20]]
-                                     + ([f"… и ещё {len(added) - 20}"] if len(added) > 20 else [])),
-                             section("Не загружено", [esc(p) for p in problems]),
-                             "Прочитаю и проверю в этом же проходе."))
+        total += len(added)
+        if added or problems:  # problems are told once (their ids are in seen now): an email when Telegram is down
+            closed = any("открыт" in p or "закрыт" in p for p in problems)
+            notify.urgent(join(head("📥", "Документы с Drive продавца", k, st["заголовок"][:60]),
+                                 section(f"Добавлено в папку станции: {len(added)}", [esc(n) for n in added[:20]]
+                                         + ([f"… и ещё {len(added) - 20}"] if len(added) > 20 else [])),
+                                 section("Не загружено", [esc(p) for p in problems]),
+                                 "Прочитаю и проверю в этом же проходе." if added else "",
+                                 "Ссылка открывается только по приглашению: попроси продавца открыть доступ «всем, у "
+                                 f"кого есть ссылка», потом перешли ссылку боту с подписью {code(k)}." if closed else ""))
     return total
 
 
@@ -645,19 +661,29 @@ def run(only: str = "", today: date | None = None) -> str:
     stations = {s["id"]: s for s in sheets.read(api, sid, "Станции")}
     dialogs, drafts_rows = sheets.read(api, sid, "Диалоги"), sheets.read(api, sid, "Черновики")
     files = drive.station_files(files_svc)
-    state = sheets.kv(api, sid, "_state").get(SEEN, {}).get("значение") or "[]"
-    seen = set(json.loads(state))  # Drive files already handled: never fetched again, even when not stored
+    # Drive files already handled, one «_state» key per station (a cell holds 50 000 characters): never fetched
+    # again, even when not stored. The old single key is still honoured.
+    state = sheets.kv(api, sid, "_state")
+    load = lambda key: set(json.loads(state.get(key, {}).get("значение") or "[]"))
+    legacy = load(SEEN)
+    kept = {k: load(f"{SEEN} {k}") for k in stations}
+    seen = {k: v | legacy for k, v in kept.items()}
     if harvest({k: v for k, v in stations.items() if not only or k == only.upper()}, dialogs, drafts_rows, files, files_svc,
                seen):
         files = drive.station_files(files_svc)
-    if sorted(seen) != sorted(json.loads(state)):
-        sheets.set_kv(api, sid, "_state", {SEEN: json.dumps(sorted(seen))})
+    if grown := {f"{SEEN} {k}": json.dumps(sorted(v - legacy)) for k, v in seen.items() if v - legacy != kept.get(k)}:
+        sheets.set_kv(api, sid, "_state", grown)
+    present = {k: {f["id"] for f in fs} for k, fs in files.items()}  # deleted or moved away: no longer counts
     live = {k for k, st in stations.items() if candidate(st, files.get(k))}
     cands = sorted(k for k in live if not only or k == only.upper())
     if only and not cands:
         return f"{only}: не кандидат для сводки (статус, отбор или нет документов)"
-    docs_.refresh(api, sid, files, set(cands), files_svc, today)
-    docs = docs_.records(sheets.read(api, sid, "Документы"))
+    try:
+        docs_.refresh(api, sid, files, set(cands), files_svc, today)
+    except llm.LLMUnavailable as e:  # what was read is saved; the rest is read next pass, the evaluation goes on
+        print(f"brief: чтение документов: {e}", flush=True)
+    reg = sheets.read(api, sid, "Документы")
+    docs, registered = docs_.records(reg, present), {r["id файла"] for r in reg}
     briefs = sheets.read(api, sid, "Сводки")
     settings = {k: r["значение"] for k, r in sheets.kv(api, sid, "Настройки").items()}
     paused = settings.get("пауза") == "да"
@@ -665,15 +691,15 @@ def run(only: str = "", today: date | None = None) -> str:
     results = []
     for k in cands:
         st = stations[k]
-        if inbox.blocked(st, black, refused):
-            continue
+        if inbox.blocked(st, black, refused) or any(f["id"] not in registered for f in files.get(k, [])):
+            continue  # a refusal; or files refresh didn't get to (an outage): judged next pass, on all of them
         last = next((r for r in reversed(briefs) if r["id станции"] == k), None)
         history = [r for r in dialogs if r["id станции"] == k]
         try:
             recs = docs.get(k, [])
             if not gate(st, recs, cfg, today)[0] and not all(d.get("confirmed") for d in recs if d["type"] != UNREAD):
-                docs_.confirm_station(api, sid, k, files_svc, today)  # the second reading decides, not the first
-                recs = docs_.records(sheets.read(api, sid, "Документы")).get(k, [])
+                docs_.confirm_station(api, sid, k, files_svc, today, present)  # the second reading decides
+                recs = docs_.records(sheets.read(api, sid, "Документы"), present).get(k, [])
             res = evaluate(st, recs, history, [d for d in drafts_rows if d["id станции"] == k], last, cfg, today,
                            paused, force=bool(only))
         except llm.LLMUnavailable as e:  # an outage: this station waits for the next pass, the others go on
@@ -778,7 +804,9 @@ def approve(api, sid, callback: str, today: date, message_id: int | None = None)
         return why
     st = next((s for s in sheets.read(api, sid, "Станции") if s["id"] == r["id станции"]), None)
     reg = sheets.read(api, sid, "Документы")
-    docs = docs_.records(reg).get(r["id станции"], [])
+    svc = drive.service()
+    present = {k: {f["id"] for f in fs} for k, fs in drive.station_files(svc).items()}  # deleted or moved away: gone
+    docs = docs_.records(reg, present).get(r["id станции"], [])
     black, refused = approval.block_lists(api, sid)
     problems = ([("станции нет в таблице", "")] if not st else
                 [(f"статус станции «{st['статус переписки']}»", "")] if st["статус переписки"] in CLOSED + inbox.HOLD else
@@ -787,8 +815,7 @@ def approve(api, sid, callback: str, today: date, message_id: int | None = None)
         r["статус"] = "устарело"
         sheets.update(api, sid, "Сводки", [r])
         return join(head("⛔", "Сводку не отправил", r["id станции"]), section("Почему", [esc(p) for p, _ in problems]))
-    files = {x["id файла"]: x["файл"] for x in reg}
-    svc = drive.service()
+    files = {x["id файла"]: x["файл"] for x in reg if x["id файла"] in present.get(r["id станции"], ())}
     attach = [(files[f], drive.download(svc, f), drive.ALLOWED.get(Path(files[f]).suffix.lower(), "application/octet-stream"))
               for f in r["вложения"].split(",") if f in files]
     limit, kept, total = cfg["director"]["max_attach_mb"] * 2 ** 20, [], 0
@@ -848,6 +875,8 @@ if __name__ == "__main__":
     from solar_outreach import director
     load_env()
     with single_run("brief", stale_sec=7200):  # the timer never runs two passes at once
-        print(run(sys.argv[1] if len(sys.argv) > 1 else ""), flush=True)
-        if len(sys.argv) == 1:
-            print(director.deliver(sheets.service(), os.environ["SPREADSHEET_ID"]), flush=True)
+        try:
+            print(run(sys.argv[1] if len(sys.argv) > 1 else ""), flush=True)
+        finally:  # what the director asked for goes out even when the pass above failed (it needs no LLM)
+            if len(sys.argv) == 1:
+                print(director.deliver(sheets.service(), os.environ["SPREADSHEET_ID"]), flush=True)

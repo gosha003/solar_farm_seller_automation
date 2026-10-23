@@ -120,6 +120,43 @@ def act(st: dict | None, rep: DirectorReply, ctx: dict, today: date) -> tuple[li
     return owner_lines, director_lines, d
 
 
+def flush(api, sid, svc, cfg: dict, r: dict) -> None:
+    """What handled letters still owe, kept in «не отправлено» until it is out: his answer, then the owner's notice
+    (Telegram, or a [SOLAR] email when Telegram is down). Each is taken out of the row before it is sent, so a failed
+    write after a send never sends it twice. His answer is tried again only when Gmail never got it (NotSent); after
+    any other error it may have gone out, and the owner is told to check instead."""
+    owed = json.loads(r.get("не отправлено") or "{}")
+
+    def save():
+        r["не отправлено"] = json.dumps(owed, ensure_ascii=False) if owed else ""
+        sheets.update(api, sid, "Сводки", [r])
+    for mid, o in list(owed.items()):
+        warn = lambda text: f"{o['owner'] or head('⚠️', 'Ответ директору', r['id станции'])}\n\n{text}"
+        if o.get("director"):
+            letter, o["director"] = o["director"], None
+            save()
+            try:
+                if answer(svc, cfg, **letter).get("dry_run"):
+                    o["owner"] = o["owner"] and f"{o['owner']}\n\nDRY_RUN: ответ директору не отправлен"
+            except gmail.NotSent as e:  # Gmail never got it: tried again at the next mail check
+                print(f"директор: ответ на {mid} не ушёл ({e}), повторю", flush=True)
+                o["director"] = letter
+                o["owner"] = o["owner"] and f"{o['owner']}\n\n⚠️ Ответ директору не ушёл, повторю при следующей проверке почты."
+            except Exception as e:
+                o["owner"] = warn(f"⚠️ Ответ директору мог не уйти ({type(e).__name__}): проверь в Gmail.")
+        if o.get("owner"):
+            notice, o["owner"] = o["owner"], None
+            save()
+            try:
+                notify.urgent(notice)
+            except Exception as e:  # Telegram and the email both down: tried again at the next mail check
+                print(f"директор: уведомление о {mid} не ушло ({type(e).__name__}), повторю", flush=True)
+                o["owner"] = notice
+        if not o.get("director") and not o.get("owner"):
+            del owed[mid]
+    save()
+
+
 def owner_notice(st: dict | None, rep: DirectorReply, done: list[str], text: str) -> str:
     """What the owner sees in Telegram after a letter from the director."""
     icon = {"за переговоры": "✅", "отклонил объект": "🛑"}.get(rep.verdict, "📨")
@@ -133,15 +170,19 @@ def owner_notice(st: dict | None, rep: DirectorReply, done: list[str], text: str
 
 
 def replies(api, sid, svc, today: date | None = None) -> int:
-    """At each mail check. A letter is marked handled only after its results are in the sheet and his answer went out;
-    a letter written to the sheet but not marked (Gmail failed) is recognised by its id and only marked."""
+    """At each mail check. A letter is marked handled once its results are in the sheet, with his answer and the
+    owner's notice in «не отправлено» until they are out (flush); a letter written to the sheet but not marked (Gmail
+    failed) is recognised by its id and only marked."""
     cfg, today = load_config(), today or date.today()
     who = cfg["director"]["email"]
     msgs = list({m["id"]: m for m in [*gmail.replies_from(svc, who, brief.DIRECTOR_LABEL),
                                       *gmail.fresh_from(svc, who, brief.DIRECTOR_LABEL)]}.values())
+    rows = sheets.read(api, sid, "Сводки")
+    for r in rows:  # what an earlier check couldn't send (Gmail, Telegram down)
+        if r.get("не отправлено"):
+            flush(api, sid, svc, cfg, r)
     if not msgs:
         return 0
-    rows = sheets.read(api, sid, "Сводки")
     sent_briefs = {}
     for x in rows:  # the briefed objects a new letter may be about, newest brief of each
         if x["статус"] == "отправлено":
@@ -163,18 +204,24 @@ def replies(api, sid, svc, today: date | None = None) -> int:
         named = [k for k in sent_briefs if re.search(rf"\b{k}\b", f"{subject} {text}")]
         if not r and len(named) == 1:
             r = sent_briefs[named[0]]
+        failed = ""
         try:
             rep = llm.call_json("model_strong", READ.format(briefed=briefed, brief=r["текст"] if r else "-",
                                                             subject=subject.replace('"', "'"), reply=text[:8000]),
                                 DirectorReply, effort="low", system=docs_.ANALYST)
         except llm.LLMUnavailable:
             raise
-        except llm.LLMError:  # a refusal or invalid JSON: the owner reads it himself
+        except llm.LLMError as e:  # a refusal or invalid JSON: the owner reads it himself
+            failed = str(e)[:200]
             rep = DirectorReply(station="", summary_ru=text[:300], verdict="без решения", documents=[], questions=[],
                                 for_owner=[])
         if not r and rep.station in sent_briefs:
             r = sent_briefs[rep.station]
         if not r:  # about none of the briefed objects (personal mail): seen, nothing else, nobody told
+            if failed:  # unread, it may still be about an object: only the subject, never the letter
+                notify.try_send(join(head("⚠️", "Письмо директора не разобрано"), f"{b('Тема:')} {esc(subject)}",
+                                     f"Claude не смог его прочитать ({esc(failed)}). Если оно о станции, "
+                                     "прочитай его в Gmail и реши сам."))
             gmail.mark_internal(svc, m, brief.DIRECTOR_LABEL, own_thread=False)
             continue
         if m["threadId"] not in r["тред Gmail"].split(","):  # his new thread: later letters in it map here too
@@ -183,29 +230,39 @@ def replies(api, sid, svc, today: date | None = None) -> int:
         before = dict(st) if st else None
         ctx.update({"queue": [], "refusals": []})
         owner_lines, director_lines, d = act(st, rep, ctx, today)
-        line = f"{today:%d.%m} {rep.verdict}: {rep.summary_ru}" + (f" → {'; '.join(owner_lines)}" if owner_lines else "")
+        line = f"{today:%d.%m} {rep.verdict}: {rep.summary_ru}" + (f" → {'; '.join(owner_lines)}" if owner_lines else "") \
+            + (f" · за владельцем: {'; '.join(rep.for_owner)}" if rep.for_owner else "")
         r["ответ директора"] = f"{r['ответ директора']}\n{line} · письмо {m['id']}".strip()
+        taken = []
         if d:  # what arrives from the seller from now on goes to him, in the thread he wrote in
-            r["ждёт директор"] = json.dumps({
-                "since": today.isoformat(), "reply_to": gmail.header(m, "Message-ID"), "thread": m["threadId"],
-                "subject": subject, "asked": rep.documents + rep.questions,
-                "known": [x["file_id"] for x in ctx["register"].get(st["id"], [])],
-                "answers": sum(x["id станции"] == st["id"] and x["направление"] == "in" for x in ctx["dialogs"])},
-                ensure_ascii=False)
+            p = {"since": today.isoformat(), "reply_to": gmail.header(m, "Message-ID"), "thread": m["threadId"],
+                 "subject": subject, "asked": rep.documents + rep.questions,
+                 "known": [x["file_id"] for x in ctx["register"].get(st["id"], [])],
+                 "answers": sum(x["id станции"] == st["id"] and x["направление"] == "in" for x in ctx["dialogs"])}
+            for x in rows:  # one open request per station: what an earlier one hasn't delivered yet goes out once, here
+                if x["id станции"] == r["id станции"] and x["ждёт директор"]:
+                    old = json.loads(x["ждёт директор"])
+                    p.update(known=old["known"], answers=old["answers"], asked=old["asked"] + p["asked"])
+                    if x is not r:
+                        x["ждёт директор"] = ""
+                        taken.append(x)
+            r["ждёт директор"] = json.dumps(p, ensure_ascii=False)
         if st:
             st["примечание"] = f"{st['примечание']}\n{today:%d.%m} директор ← {rep.summary_ru}".strip()
+        owed = json.loads(r.get("не отправлено") or "{}")
+        owed[m["id"]] = {"director": {"thread": m["threadId"], "subject": subject, "reply_to": gmail.header(m, "Message-ID"),
+                                      "body": "\n\n".join(director_lines)} if director_lines else None,
+                         "owner": owner_notice(st, rep, owner_lines,  # a cell holds 50 000 characters; the letter is in Gmail
+                                               text if len(text) <= 3000 else f"{text[:3000]}\n… (полностью в Gmail)")}
+        r["не отправлено"] = json.dumps(owed, ensure_ascii=False)
         approval.gate(api, sid, ctx["queue"], stations)
         sheets.append(api, sid, "Отказы", ctx["refusals"])
         sheets.append(api, sid, "Черновики", [d] if d else [])
         sheets.append(api, sid, "Ручная очередь", ctx["queue"])
-        sheets.update(api, sid, "Сводки", [r])
+        sheets.update(api, sid, "Сводки", [r, *taken])
         sheets.update(api, sid, "Станции", [st] if st and st != before else [])
-        if director_lines:
-            res = answer(svc, cfg, m["threadId"], subject, gmail.header(m, "Message-ID"), "\n\n".join(director_lines))
-            if res.get("dry_run"):
-                owner_lines.append("DRY_RUN: ответ директору не отправлен")
-        gmail.mark_internal(svc, m, brief.DIRECTOR_LABEL)
-        notify.send(owner_notice(st, rep, owner_lines, text))
+        gmail.mark_internal(svc, m, brief.DIRECTOR_LABEL)  # what is owed stays in the row until it is out
+        flush(api, sid, svc, cfg, r)
     return len(msgs)
 
 

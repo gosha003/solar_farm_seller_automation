@@ -126,9 +126,13 @@ def replies_from(svc, sender: str, label: str) -> list[dict]:
     # the query only narrows the listing (search writes a nested label with «-»); the check below decides
     q = f"from:({sender}) -label:" + re.sub(r"[\s/]", "-", label + DONE_SUFFIX)  # no backslash in f-strings on 3.11
     for t in svc.threads().list(userId="me", labelIds=[lab], q=q, maxResults=100).execute().get("threads", []):
-        for m in svc.threads().get(userId="me", id=t["id"], format="full").execute().get("messages", []):
+        msgs = svc.threads().get(userId="me", id=t["id"], format="full").execute().get("messages", [])
+        # only from the first labelled message on (our brief, or the letter that brought an old thread in): his
+        # older letters in a conversation he later answered about an object are not replies to anything
+        start = min((int(m.get("internalDate", 0)) for m in msgs if lab in m.get("labelIds", [])), default=0)
+        for m in msgs:
             if (parseaddr(header(m, "From"))[1].lower() == sender.lower() and done not in m.get("labelIds", [])
-                    and "SENT" not in m.get("labelIds", [])):
+                    and "SENT" not in m.get("labelIds", []) and int(m.get("internalDate", 0)) >= start):
                 out.append(m)
     return out
 
@@ -162,12 +166,12 @@ def last_in_threads(svc, thread_ids: list[str]) -> dict | None:
     (SolarBG/обработано): a document request never answers a letter that wasn't classified, escalated or checked."""
     cfg = load_config()
     label, done = label_ids(svc, cfg["gmail"]["label"])
-    owner, best = cfg["owner"]["email"].lower(), None
+    best = None
     for tid in thread_ids:
         for m in (_thread(svc, tid, label) or {}).get("messages", []):
             ids = m.get("labelIds", [])
             newer = best is None or int(m.get("internalDate", 0)) > int(best.get("internalDate", 0))
-            if parseaddr(header(m, "From"))[1].lower() != owner and "SENT" not in ids and done in ids and newer:
+            if parseaddr(header(m, "From"))[1].lower() not in _us(cfg) and "SENT" not in ids and done in ids and newer:
                 best = m
     return best
 
@@ -177,9 +181,9 @@ def thread_texts(svc, thread_id: str) -> list[str]:
     a word is kept). For finding Google Drive links; nothing here is answered or followed."""
     cfg = load_config()
     label, _ = label_ids(svc, cfg["gmail"]["label"])
-    owner, out = cfg["owner"]["email"].lower(), []
+    out = []
     for m in (_thread(svc, thread_id, label) or {}).get("messages", []):
-        if parseaddr(header(m, "From"))[1].lower() != owner and "SENT" not in m.get("labelIds", []):
+        if parseaddr(header(m, "From"))[1].lower() not in _us(cfg) and "SENT" not in m.get("labelIds", []):
             out += [decode(base64.urlsafe_b64decode(p["body"]["data"] + "=="), p) for p in _parts(m.get("payload", {}))
                     if p.get("body", {}).get("data") and p.get("mimeType", "").startswith("text/")]
     return out
@@ -235,23 +239,40 @@ def adopt(svc, emails: list[str]) -> int:
     return len(ids)
 
 
+def _us(cfg: dict) -> set[str]:
+    """The owner and the director: their letters in a seller thread (a forward, a CC) are never a seller's.
+    The director's go to director.py wherever they land."""
+    return {cfg["owner"]["email"].lower(), cfg.get("director", {}).get("email", "").lower()} - {""}
+
+
+def _new(m: dict, done: str, cfg: dict) -> bool:
+    """A seller's letter inbox still has to read: not ours, not marked «обработано», not in Trash or Spam (the
+    thread listing leaves those out, so inbox never reads them)."""
+    ids = set(m.get("labelIds", []))
+    return (parseaddr(header(m, "From"))[1].lower() not in _us(cfg) and done not in ids
+            and not ids & {"SENT", "TRASH", "SPAM"})
+
+
 def incoming(svc) -> list[dict]:
     """Incoming mail in our threads not yet marked «обработано». Our own messages are skipped."""
     cfg = load_config()
     label, done = label_ids(svc, cfg["gmail"]["label"])
-    owner = cfg["owner"]["email"].lower()
     out, page = [], None
     while True:
         resp = svc.threads().list(userId="me", labelIds=[label], pageToken=page, maxResults=100).execute()
         for t in resp.get("threads", []):
             thread = _thread(svc, t["id"], label)
-            for m in (thread or {}).get("messages", []):
-                frm = parseaddr(header(m, "From"))[1].lower()
-                if frm != owner and done not in m.get("labelIds", []) and "SENT" not in m.get("labelIds", []):
-                    out.append(m)
+            out += [m for m in (thread or {}).get("messages", []) if _new(m, done, cfg)]
         page = resp.get("nextPageToken")
         if not page:
             return out
+
+
+def unread_in(svc, thread_id: str) -> bool:
+    """The seller wrote in this thread and inbox hasn't read it yet (mail is read twice a day): a letter into it waits."""
+    cfg = load_config()
+    label, done = label_ids(svc, cfg["gmail"]["label"])
+    return any(_new(m, done, cfg) for m in (_thread(svc, thread_id, label) or {}).get("messages", []))
 
 
 def mark_done(svc, msg: dict) -> None:
