@@ -43,6 +43,7 @@ DOC_REQUEST = "запрос документов"  # draft type; skipping its ca
 DIRECTOR_REQUEST = f"{DOC_REQUEST} по ответу директора"
 DIRECTOR_LABEL = "SolarBG/директор"  # briefs and the director's replies; never SolarBG, so never the seller pipeline
 CLOSED = ("новая", "черновик", "не писать", "отказ", "пропущено владельцем", "перенаправлено")
+SEEN = "drive: обработано"  # «_state» key: the seller Drive file ids already handled
 REQ = " → запросить: "  # a «Сводки» problem line: what is wrong, then what the seller can send
 # disclaimers and first-person hedging the owner never wants in a brief; checked in code after the model
 HEDGE = re.compile(r"\bя\b|\bмне\b|\bмо[йяеи]\b|\bмоё\b|не являюсь|\bне юрист|на мой взгляд|по моему мнению"
@@ -169,6 +170,18 @@ def _float(v) -> float:
         return 0.0
 
 
+def unique(docs: list[dict]) -> list[dict]:
+    """One record per document number (the same permit scanned twice, a copy uploaded by hand): the most complete
+    one, so a stamp or a signature on any copy counts and the problem is listed once."""
+    best = {}
+    for d in docs:
+        key = _num(d.get("number", "")) or d["title"]
+        score = (d.get("executed", True), bool(d.get("in_force")), len(d.get("deadlines") or []), len(json.dumps(d, ensure_ascii=False)))
+        if key not in best or score > best[key][0]:
+            best[key] = (score, d)
+    return [d for _, d in best.values()]
+
+
 def capacity(st: dict, docs: list[dict], operating: bool) -> float:
     """Installed kWp from the permits (projects) or use permits (plants), each permit once by its number (the same
     permit sent twice counts once); else the listing's figure."""
@@ -209,7 +222,7 @@ def gate(st: dict, docs: list[dict], cfg: dict, today: date) -> tuple[list[tuple
              "нет данных о выработке за 12 месяцев", "данные о выработке по месяцам за последние 12 месяцев")
         need((POWER_SALE,), of(POWER_SALE), "нет договора продажи электроэнергии", "договор продажи электроэнергии")
     else:
-        permits, protocols = of(PERMIT, signed=False), of(PROTOCOL)
+        permits, protocols = unique(of(PERMIT, signed=False)), of(PROTOCOL)
         if not permits:
             problems.append(("нет разрешения на строительство", "разрешение на строительство с отметкой о вступлении в силу"))
         for p in permits:
@@ -217,7 +230,7 @@ def gate(st: dict, docs: list[dict], cfg: dict, today: date) -> tuple[list[tuple
             problem, request, line = permit_check(p, protocols, len(permits) == 1, today, days)
             problems += [(problem, request)] if problem else []
             lines += [line] if line else []
-        grids = of(GRID, signed=False)
+        grids = unique(of(GRID, signed=False))
         if not grids:
             problems.append(("нет окончательного договора о присоединении",
                              "окончательный договор о присоединении со всеми приложениями"))
@@ -591,7 +604,7 @@ def send_card(st: dict, r: dict, row_no: int, b: Brief, notes: list[str], sizes:
     return notify.send(tail, [[("✅ Директору", f"b:{row_no}:{st['id']}"), ("⏭ Не отправлять", f"bx:{row_no}:{st['id']}")]])
 
 
-def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files: dict, files_svc) -> int:
+def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files: dict, files_svc, seen: set) -> int:
     """Google Drive links a seller sent (in his letters in the station's own Gmail threads, in a logged WhatsApp
     message, in the station note) bring their files into the station folder, for every station in a live deal.
     The system's own Drive links (saved attachments) are skipped. Returns how many files were added."""
@@ -611,7 +624,7 @@ def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files:
         links = [x for x in docs_.drive_links("\n".join(texts)) if x[1] not in ours]
         if not links:
             continue
-        added, problems = docs_.import_drive(files_svc, k, links, files.setdefault(k, []))
+        added, problems = docs_.import_drive(files_svc, k, links, files.setdefault(k, []), seen)
         for p in problems:
             print(f"brief: Drive {k}: {p}", flush=True)
         if added:
@@ -619,6 +632,7 @@ def harvest(stations: dict, dialogs: list[dict], drafts_rows: list[dict], files:
             notify.send(join(head("📥", "Документы с Drive продавца", k, st["заголовок"][:60]),
                              section(f"Добавлено в папку станции: {len(added)}", [esc(n) for n in added[:20]]
                                      + ([f"… и ещё {len(added) - 20}"] if len(added) > 20 else [])),
+                             section("Не загружено", [esc(p) for p in problems]),
                              "Прочитаю и проверю в этом же проходе."))
     return total
 
@@ -631,8 +645,13 @@ def run(only: str = "", today: date | None = None) -> str:
     stations = {s["id"]: s for s in sheets.read(api, sid, "Станции")}
     dialogs, drafts_rows = sheets.read(api, sid, "Диалоги"), sheets.read(api, sid, "Черновики")
     files = drive.station_files(files_svc)
-    if harvest({k: v for k, v in stations.items() if not only or k == only.upper()}, dialogs, drafts_rows, files, files_svc):
+    state = sheets.kv(api, sid, "_state").get(SEEN, {}).get("значение") or "[]"
+    seen = set(json.loads(state))  # Drive files already handled: never fetched again, even when not stored
+    if harvest({k: v for k, v in stations.items() if not only or k == only.upper()}, dialogs, drafts_rows, files, files_svc,
+               seen):
         files = drive.station_files(files_svc)
+    if sorted(seen) != sorted(json.loads(state)):
+        sheets.set_kv(api, sid, "_state", {SEEN: json.dumps(sorted(seen))})
     live = {k for k, st in stations.items() if candidate(st, files.get(k))}
     cands = sorted(k for k in live if not only or k == only.upper())
     if only and not cands:

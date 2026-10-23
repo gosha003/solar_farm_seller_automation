@@ -313,10 +313,13 @@ def store(files_svc, station: str, name: str, data: bytes, source: str, existing
     return "added"
 
 
-def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing: list[dict]) -> tuple[list[str], list[str]]:
-    """The files behind Drive links into the station folder: (added names, problems). A file whose id is already on a
-    copy is not downloaded again, so the hourly pass costs one listing per link."""
-    known = {(f.get("appProperties") or {}).get("source") for f in existing}
+def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing: list[dict],
+                 seen: set | None = None) -> tuple[list[str], list[str]]:
+    """The files behind Drive links into the station folder: (added names, problems). A file is fetched once: its id
+    is on its copy, or in `seen` (the caller keeps it) when it was a duplicate, too big or of a type never stored.
+    Only a network error leaves it to the next pass. So the hourly pass costs one listing per link."""
+    seen = seen if seen is not None else set()
+    known = {(f.get("appProperties") or {}).get("source") for f in existing} | seen
     added, problems = [], []
     for kind, lid in links:
         try:
@@ -325,14 +328,22 @@ def import_drive(files_svc, station: str, links: list[tuple[str, str]], existing
             problems.append(f"папка по ссылке не открылась ({type(e).__name__})")
             continue
         for iid, name in items:
-            if iid in known or name and Path(name).suffix.lower() not in drive.ALLOWED:
-                continue  # imported before, or a type that is never stored (drawings, archives)
+            if iid in known:
+                continue
+            if name and Path(name).suffix.lower() not in drive.ALLOWED:
+                seen.add(iid)  # drawings, archives: never stored
+                continue
             try:
                 real, data = fetch(iid)
                 res = store(files_svc, station, real, data, iid, existing)
-            except (requests.RequestException, ValueError) as e:
-                problems.append(f"{name or iid}: {e if isinstance(e, ValueError) else type(e).__name__}")
+            except requests.RequestException as e:  # transient: tried again next pass
+                problems.append(f"{name or iid}: {type(e).__name__}")
                 continue
+            except ValueError as e:  # too big, not shared: told once
+                seen.add(iid)
+                problems.append(f"{name or iid}: {e}")
+                continue
+            seen.add(iid)
             known.add(iid)
             if res == "added":
                 added.append(real)
