@@ -110,12 +110,22 @@ def test_the_hourly_pass_imports_drive_links_from_the_sellers_own_thread(monkeyp
     monkeypatch.setattr(gmail_client, "thread_texts", lambda svc, tid: [
         f'<a href="https://drive.google.com/drive/folders/{FOLDER}">папка</a>'] if tid == "t-own" else [])
     imported = []
-    monkeypatch.setattr(documents, "import_drive", lambda svc, st, links, existing: imported.append((st, links)) or (["A.pdf"], []))
+    monkeypatch.setattr(documents, "import_drive", lambda svc, st, links, existing, seen=None: imported.append((st, links)) or (["A.pdf"], []))
     stations = {"S500": {"id": "S500", "статус переписки": "ведёт владелец", "отбор": "кандидат", "заголовок": "ФЕЦ",
                          "примечание": "https://drive.google.com/file/d/1OurOwnFile0/view"},   # our saved attachment
                 "S501": {"id": "S501", "статус переписки": "отказ", "отбор": "кандидат", "заголовок": "x", "примечание": ""}}
     dialogs = [{"id станции": "S500", "направление": "in", "краткое содержание": "прислал ссылку", "тред Gmail": "t-own"},
                {"id станции": "S501", "направление": "in", "краткое содержание": "", "тред Gmail": "t-own"}]
     files = {"S500": [{"id": "1OurOwnFile0"}]}
-    assert brief.harvest(stations, dialogs, [], files, None) == 1
+    assert brief.harvest(stations, dialogs, [], files, None, set()) == 1
     assert imported == [("S500", [("folder", FOLDER)])] and "Документы с Drive продавца" in sent[0]
+
+
+def test_a_file_that_was_handled_is_never_fetched_again(drive_fake):
+    put, tagged, fetched = drive_fake
+    seen = set()
+    documents.import_drive(None, "S500", [("folder", FOLDER)], [], seen)
+    assert {"1Done", "1Same", "1New", "1Dwg", "1Bad"} <= seen       # stored, a duplicate, a drawing, a closed file
+    fetched.clear()
+    documents.import_drive(None, "S500", [("folder", FOLDER)], [], seen)
+    assert fetched == []

@@ -548,3 +548,13 @@ def test_telegram_cards_are_valid_markup_with_escaped_values():
     assert '<a href="https://x.example/?a=1&amp;b=2">Объявление</a>' in card and "&lt;b&gt;" in card
     tags = re.findall(r"</?(\w+)", card)
     assert set(tags) <= {"b", "a", "i", "code", "blockquote"} and tags.count("b") % 2 == 0
+
+
+def test_copies_of_one_document_count_once_and_the_most_complete_wins():
+    blank = {**PERMIT, "in_force": "", "file_id": "f-copy"}                       # a second scan without the stamp
+    assert problems([PERMIT, blank, GRID, PAID, RIGHT]) == []
+    unsigned = {**GRID, "executed": False, "number": "№ 111", "file_id": "f-draft"}
+    assert problems([PERMIT, GRID, unsigned, PAID, RIGHT]) == []
+    twice = problems([{**PERMIT, "in_force": "2023-08-07"}, {**PERMIT, "in_force": "2023-08-07", "number": "7/01.02.2025"},
+                      GRID, PAID, RIGHT])
+    assert len(twice) == 1                                                        # one permit, one problem
