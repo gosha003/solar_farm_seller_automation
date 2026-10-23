@@ -44,7 +44,7 @@ director:                      # brief.py: a summary email per object that is re
   max_attach_mb: 18            # Gmail takes 25 MB including base64
 
 schedule:                      # owner.timezone; the documents pass (deploy/solar-brief.timer) runs 10 minutes later
-  mail: ["08:30", "20:30"]     # seller mail and the director's letters are read at these times, or on /mail
+  mail: ["12:45", "22:45"]     # seller mail and the director's letters are read at these times, or on /mail
 
 limits:
   approvals_before_auto_offer: 10

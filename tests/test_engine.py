@@ -48,7 +48,7 @@ def test_between_checks_the_inbox_is_left_alone_and_mail_asks_for_it(monkeypatch
     monkeypatch.setattr(engine.director, "replies", lambda *a, **k: 0)
     monkeypatch.setattr(engine.approval, "main", lambda test_n=0, full=True, fresh=True: fresh_calls.append(fresh) or 5)
     monkeypatch.setattr(engine.notify, "try_send", sent.append)
-    sheet.add("_state", {"ключ": engine.MAIL_KEY, "значение": "2026-10-23T08:30"})
+    sheet.add("_state", {"ключ": engine.MAIL_KEY, "значение": "2026-10-23T12:45"})
     assert engine.run() == 5 and reads == [] and fresh_calls == [False]   # 15:00: no mail at all, bounces neither
     sheet.add("Настройки", {"параметр": engine.owner.MAIL_NOW, "значение": "да"})   # /mail
     engine.run()

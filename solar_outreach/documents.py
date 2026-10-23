@@ -389,7 +389,7 @@ def from_telegram(msgs: list[dict], stations: dict, today: date, caption: str = 
             problems += [] if res in ("added", "same") else [f"{name}: {res}"]
     a, p, later = import_drive(files_svc, st, drive_links(text), existing)
     added, problems = added + a, problems + p + later
-    read = ("Прочитаю и проверю в ближайший проход (8:40 или 20:40)." if brief.in_deal(stations[st]) else
+    read = ("Прочитаю и проверю в ближайший проход (12:55 или 22:55)." if brief.in_deal(stations[st]) else
             f"Файлы в папке, но {st} не в проверке документов: она идёт у станций в живой переписке с отбором "
             f"«кандидат» или «исключение владельца» (сейчас: «{notify.esc(stations[st]['статус переписки'])}», "
             f"«{notify.esc(stations[st]['отбор'])}»).")
@@ -404,7 +404,7 @@ USAGE = """Документы продавца для сводки директ�
 
     python -m solar_outreach.documents add S0xx файл.pdf|ссылка_на_Drive ...   # в папку станции (дубли пропускаются)
     python -m solar_outreach.documents list S0xx               # что о станции знает реестр «Документы»
-Сервер прочитает новые файлы при ближайшей проверке (в 8:40 и 20:40) и, если документов хватает, пришлёт сводку на ✅.
+Сервер прочитает новые файлы при ближайшей проверке (в 12:55 и 22:55) и, если документов хватает, пришлёт сводку на ✅.
 """  # printed to the owner, so it stays in Russian
 
 
