@@ -43,6 +43,9 @@ director:                      # brief.py: a summary email per object that is re
   remind_days: 7               # a document request goes unanswered this long -> one reminder
   max_attach_mb: 18            # Gmail takes 25 MB including base64
 
+schedule:                      # owner.timezone; the documents pass (deploy/solar-brief.timer) runs 10 minutes later
+  mail: ["08:30", "20:30"]     # seller mail and the director's letters are read at these times, or on /mail
+
 limits:
   approvals_before_auto_offer: 10
   new_per_day: 30              # new first letters per day; replies inside a dialog are unlimited

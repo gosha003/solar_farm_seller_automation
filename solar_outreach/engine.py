@@ -3,8 +3,8 @@
     python -m solar_outreach.engine            # one pass (cron, debugging)
     python -m solar_outreach.engine --daemon   # VM: runs forever, answers in Telegram within seconds (systemd: solar-bot)
 
-Pass: inbox (classify, extract facts, escalate) -> the director's replies to briefs -> Telegram buttons and commands,
-drafts and follow-ups, sending within limits, digest. Search is a separate timed process, `python -m solar_outreach.search`:
+Pass: inbox (classify, extract facts, escalate) and the director's replies to briefs, only at schedule.mail (twice a
+day) or on /mail -> Telegram buttons and commands, drafts and follow-ups, sending within limits, digest (every pass). Search is a separate timed process, `python -m solar_outreach.search`:
 it is slow (polite pauses between site requests).
 """
 import os
@@ -12,39 +12,65 @@ import signal
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime, timedelta
 from pathlib import Path
 
 import requests
 
-from solar_outreach import approval, budget, director, gmail_client, inbox, llm, notify, sheets
+from solar_outreach import approval, budget, director, gmail_client, inbox, llm, notify, owner, sheets
 from solar_outreach.config import Busy, load_config, single_run
 
 ALERT_AFTER = 3        # one-off Telegram/Google timeouts aren't worth an alert; three in a row are
-INBOX_EVERY = 60       # seconds between mail checks; in between we wait on Telegram with long polling
+INBOX_EVERY = 60       # seconds between full passes (mail only when due); in between we wait on Telegram (long polling)
+MAIL_KEY = "почта: последняя проверка"  # «_state»: owner's local time of the last mail check
 PING_EVERY = 300       # every 5 min: Google Cloud spending cap and HEALTHCHECK_URL (optional external heartbeat)
 FAIL_FILE = Path(tempfile.gettempdir()) / "solar_outreach_failures"  # the failure counter while the sheet is unreachable
 STOP = {"asked": False, "busy": False}  # SIGTERM (deploy, systemctl restart) waits for the pass to finish
 
 
-def run(test_n: int = 0, with_inbox: bool = True) -> int:
+def mail_due(now: datetime, last: str, slots: list[str]) -> bool:
+    """The newest scheduled time at or before now (today's, or yesterday's last) is later than the last mail check."""
+    days = (now.date() - timedelta(days=1), now.date())
+    latest = max(t for t in (datetime.combine(d, dtime.fromisoformat(s)) for d in days for s in slots) if t <= now)
+    try:
+        return datetime.fromisoformat(last) < latest
+    except ValueError:  # never checked
+        return True
+
+
+def run(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> int:
+    """with_inbox: a full pass (drafts, follow-ups, sending, digest). Seller mail and the director's letters are read
+    only at schedule.mail (owner's time) or after /mail; mail=True forces it (a manual single pass)."""
     cfg = load_config()
     if with_inbox:
         api, sid = sheets.service(), os.environ["SPREADSHEET_ID"]
         sheets.ensure_tabs(api, sid)
-        mode = sheets.kv(api, sid, "Настройки").get("approval_mode", {}).get("значение") or cfg["approval_mode"]
-        stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
-        if stats["входящих"]:
-            print("входящие:", stats, flush=True)
-        try:  # the director's answers to briefs; a document request it drafts goes out in this same pass
-            director.replies(api, sid, gmail_client.service())
-        except Exception as e:  # his letter stays unhandled and is read again next pass; the sellers' pipeline goes on
-            print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
-        if stats.get("LLM недоступен"):  # replies wait unread: approval still runs, but it counts as a failed pass
-            res = approval.main(test_n, full=False)
-            failure(f"LLM недоступен: {stats['LLM недоступен']}")
-            return res
-    return approval.main(test_n, full=with_inbox)  # only a pass with the inbox resets the failure counter
+        settings = sheets.kv(api, sid, "Настройки")
+        mode = settings.get("approval_mode", {}).get("значение") or cfg["approval_mode"]
+        asked = settings.get(owner.MAIL_NOW, {}).get("значение") == "да"
+        now = owner.local_now(cfg).replace(tzinfo=None)
+        if mail is None:
+            mail = asked or mail_due(now, sheets.kv(api, sid, "_state").get(MAIL_KEY, {}).get("значение", ""),
+                                     cfg["schedule"]["mail"])
+        if mail:
+            stats = inbox.process(api, sid, gmail_client.service(), auto=mode == "auto")  # approval re-reads it from here
+            if stats["входящих"]:
+                print("входящие:", stats, flush=True)
+            try:  # the director's answers to briefs; a document request it drafts goes out in this same pass
+                director.replies(api, sid, gmail_client.service())
+            except Exception as e:  # his letter stays unhandled and is read at the next check; the sellers' pipeline goes on
+                print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
+            if stats.get("LLM недоступен"):  # replies wait unread and the check is due again: retried every pass
+                res = approval.main(test_n, full=False)
+                failure(f"LLM недоступен: {stats['LLM недоступен']}")
+                return res
+            sheets.set_kv(api, sid, "_state", {MAIL_KEY: now.isoformat(timespec="minutes")})
+            if asked:  # the owner's /mail: the flag goes, and he hears back even when nothing came
+                sheets.set_kv(api, sid, "Настройки", {owner.MAIL_NOW: "нет"})
+                notify.try_send(notify.join(notify.head("📬", "Почта проверена"),
+                                            f"Новых писем: {stats['входящих']}. Следующая проверка по расписанию: "
+                                            f"{', '.join(cfg['schedule']['mail'])}."))
+    return approval.main(test_n, full=with_inbox)  # only a full pass resets the failure counter
 
 
 def failure(err: str) -> None:
@@ -64,11 +90,11 @@ def failure(err: str) -> None:
                                   f"{notify.b('Последняя:')} {notify.esc(err)}"))
 
 
-def once(test_n: int = 0, with_inbox: bool = True) -> int | None:
+def once(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> int | None:
     """A pass with error handling. Returns the Telegram offset, or None (failure / busy with search)."""
     try:
         with single_run("sheet", wait=600):  # search holds the lock only while writing
-            res = run(test_n, with_inbox)
+            res = run(test_n, with_inbox, mail)
         FAIL_FILE.unlink(missing_ok=True)  # otherwise a second Sheets outage starts counting from the first one's 3+
         return res
     except Busy:
@@ -138,5 +164,5 @@ if __name__ == "__main__":
         daemon()
         sys.exit(0)  # SIGTERM: the pass finished, stop without another one
     n = int(sys.argv[sys.argv.index("--test") + 1]) if "--test" in sys.argv else 0
-    if once(n) is None:
+    if once(n, mail=True) is None:  # run by hand: the mail is read now, whatever the schedule
         sys.exit(1)

@@ -1,7 +1,7 @@
 """The director's side of briefs: his letters are recorded and told to the owner, what the system can do without the
 owner it does, and the result goes back to him as a reply in the thread he wrote in.
 
-  replies (engine, every pass): his replies in a brief's thread (label SolarBG/директор, never seen by the seller
+  replies (engine, at the mail check times): his replies in a brief's thread (label SolarBG/директор, never seen by the seller
       pipeline), and new letters he writes from his address. A new letter is matched to a briefed object by its station
       id or, failing that, by Claude among the briefed objects; one about none of them (personal mail) is only marked as
       seen, nobody is told. Claude reads each letter: a verdict, documents and factual questions for the seller, and
@@ -133,7 +133,7 @@ def owner_notice(st: dict | None, rep: DirectorReply, done: list[str], text: str
 
 
 def replies(api, sid, svc, today: date | None = None) -> int:
-    """Every pass. A letter is marked handled only after its results are in the sheet and his answer went out;
+    """At each mail check. A letter is marked handled only after its results are in the sheet and his answer went out;
     a letter written to the sheet but not marked (Gmail failed) is recognised by its id and only marked."""
     cfg, today = load_config(), today or date.today()
     who = cfg["director"]["email"]
