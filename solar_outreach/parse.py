@@ -8,6 +8,7 @@ NUM = r"(\d{1,3}(?:[ ., ]\d{3})+(?:[.,]\d{1,2}(?!\d))?(?!\d)|\d+(?:[.,]\d+)?)" 
 UNIT = r"([mм](?:w|вт)[pрп]?|(?:мегават|киловат)(?!\w*час)\w*|[kк](?:w|вт)[pрп]?|кв(?!\.?\s*м))"
 POWER = re.compile(NUM + r"\s*-?\s*" + UNIT + r"(?![a-zа-я])(?!\s*[-/.]?\s*(?:ч|час\w*|h)(?![a-zа-я]))", re.I)
 VOLTS = {0.4, 6, 10, 20, 35, 110}  # kV of Bulgarian distribution lines
+DC_AC = 1.5  # installed (DC) over grid (AC) power of one plant: ready-to-build projects with storage go up to ~1.5
 MONEY = re.compile(NUM + r"\s*(€|eur\w*|евро|лв\.?|лева|bgn)|(€|eur)\s*" + NUM, re.I)
 PER_UNIT = re.compile(r"\s*(?:/|(?:на|за|per)\s)\s*(?:[kк][wв]|[mм][wв]|мегават|киловат|[mм][2²])", re.I)  # «€/MW», «лв за кВт»
 YEAR = re.compile(r"(?:експлоатация|изградена|построена|пусната|въведена|от|година|г\.?)\D{0,25}?\b(20[01]\d|202[0-6])\b"
@@ -47,19 +48,20 @@ def powers_kw(text: str) -> list[float]:
     return out
 
 
+def one_plant(vals: list[float]) -> float | None:
+    """Values of one plant (DC and AC, «~5 MW» next to «4 988 kWp»): the installed one, the largest. Further apart than
+    DC_AC they are different things (an inverter, a second plant): None."""
+    return max(vals) if vals and max(vals) <= min(vals) * DC_AC else None
+
+
 def power_kw(title: str, text: str) -> float | None:
-    """The title wins over the text. In the text: a single value, or the value after the word «мощност»."""
-    for src in (title, text):
-        vals = set(powers_kw(src))
-        if len(vals) == 1:
-            return vals.pop()
-        if src is text and vals:
-            near = {v for m in re.finditer(r"мощност\D{0,30}", src, re.I) for v in powers_kw(src[m.end():m.end() + 25])}
-            if len(near) == 1:
-                return near.pop()
-        if len(vals) > 1 and src is title:
-            return None
-    return None
+    """The title wins over the text (several values there: ambiguous). In the text: all its values, or failing that the
+    first value after each word «мощност», when they describe one plant."""
+    vals = set(powers_kw(title))
+    if vals:
+        return vals.pop() if len(vals) == 1 else None
+    near = [p[0] for m in re.finditer(r"мощност\D{0,30}", text, re.I) if (p := powers_kw(text[m.end():m.end() + 25]))]
+    return one_plant(powers_kw(text)) or one_plant(near)
 
 
 def price_eur(price_text: str, text: str, eur_bgn: float) -> float | None:

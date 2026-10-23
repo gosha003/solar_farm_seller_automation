@@ -51,9 +51,24 @@ BAZAR_60 = ("Предлагам за продажба фотоволтаична
     ("ФЕЦ 1,500 MW", "", 1500),
     ("ФЕЦ 1 MW с БКТП 20 кВ", "", 1000),
     ("Фотоволтаична централа", "Продава се ФЕЦ 1,5 MW, присъединена към БКТП 20/0,4 кВ", 1500),
+    # a bland title, the plant described in the text: DC and AC of one plant give the installed power
+    ("Продаваме работеща ФЕЦ", "Инсталирана мощност: 1 988.88 kWp (~2 MW) Изходна мощност: 1 740 kW Инвертори: "
+     "KACO – 155 kW (12 бр.) Трафопост: 2 x 1000 kVA / 20/0.6 kV", 1988.88),
+    ("ФЕЦ с разрешение за строеж", "инсталирана мощност 2 510 kWp, присъединена мощност 1 700 kW, инвертори 100 kW", 2510),
+    ("Продавам ФЕЦ", "DC 1 200 kWp, AC 1 000 kW", 1200),
+    ("Продавам ФЕЦ", "две централи: 30 kW и 200 kW", None),     # two plants, not DC and AC of one
 ])
 def test_power(title, text, kw):
     assert parse.power_kw(title, text) == kw
+
+
+@pytest.mark.parametrize("h1", [
+    '<h1 class="adName"><span itemprop="name">Продаваме работеща ФЕЦ</span><span class="adNameId">→ Обява 54000001</span></h1>',
+    '<h1 class="classifiedTitle"><span>Обява 54000001</span>Продаваме работеща ФЕЦ</h1>',   # the older markup
+])
+def test_bazar_title_keeps_the_name_not_the_ad_number(h1):
+    from solar_outreach.sources import bazar
+    assert bazar.parse_ad("https://bazar.bg/obiava-54000001/x", f"<html>{h1}</html>").title == "Продаваме работеща ФЕЦ"
 
 
 @pytest.mark.parametrize("price_text,text,eur", [
