@@ -3,13 +3,18 @@ API errors are LLMError too; LLMUnavailable when the outage is temporary.
 The shared system prompt (hard rules + buyer facts) is cached.
 """
 import json
+import sys
+from datetime import datetime
 from functools import cache
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 import anthropic
 import pydantic
 
-from solar_outreach.config import load_config
+from solar_outreach.config import ROOT, load_config
+
+USAGE_LOG = ROOT / "usage.jsonl"  # gitignored; one line per API response, read by `python -m solar_outreach.usage`
 
 
 class LLMError(Exception):
@@ -114,9 +119,34 @@ def anthropic_client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
+def caller(back: int = 1) -> str:
+    """«module.function» of the code `back` frames above the one that calls this (1 = its own caller)."""
+    f = sys._getframe(back + 1)
+    return f"{f.f_globals['__name__'].removeprefix('solar_outreach.')}.{f.f_code.co_qualname}"
+
+
+def log_usage(cfg: dict, r, where: str) -> None:
+    """Append what one API response cost (tokens, web searches) to USAGE_LOG. Never breaks the call it measures.
+    ponytail: a response that fails pydantic validation raises inside the SDK before we see it, so it isn't logged."""
+    usage = getattr(r, "usage", None)
+    if USAGE_LOG is None or usage is None:
+        return
+    try:
+        rec = {"ts": datetime.now(ZoneInfo(cfg["owner"]["timezone"])).isoformat(timespec="seconds"),
+               "model": getattr(r, "model", ""), "where": where, "in": usage.input_tokens or 0,
+               "out": usage.output_tokens or 0, "cache_write": usage.cache_creation_input_tokens or 0,
+               "cache_read": usage.cache_read_input_tokens or 0,
+               "searches": getattr(getattr(usage, "server_tool_use", None), "web_search_requests", 0) or 0}
+        with open(USAGE_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:  # a full disk or an odd usage object must not lose the answer we already paid for
+        print(f"llm: usage not logged ({type(e).__name__})", flush=True)
+
+
 def call_json(model_key: str, user: str | list, schema: type[pydantic.BaseModel], effort: str = "medium",
               system: str = "", max_tokens: int = 4000):
     """user: text, or content blocks (documents, images) followed by text. system: the seller-letter prompt by default."""
+    where = caller()
     cfg = load_config()
     client = anthropic_client()
     model = cfg["llm"][model_key]
@@ -136,6 +166,7 @@ def call_json(model_key: str, user: str | list, schema: type[pydantic.BaseModel]
             busy = isinstance(e, (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError))
             busy = busy or (isinstance(e, anthropic.APIStatusError) and e.status_code >= 500)
             raise (LLMUnavailable if busy else LLMError)(f"API: {type(e).__name__}") from None
+        log_usage(cfg, r, where)  # a refusal and an unparsable answer are billed too
         if r.stop_reason == "refusal":
             raise LLMError("модель отказалась")
         if r.parsed_output is not None:

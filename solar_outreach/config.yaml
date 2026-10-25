@@ -36,6 +36,13 @@ llm:
   model_strong: claude-sonnet-5-5  # letter rewrites and replies, reading seller documents
   model_review: claude-opus-5-5    # director briefs and their fact-check
   json_retries: 1                  # after that the message escalates to the owner
+  # usage.py: USD per million tokens [input, output, cache read, cache write]; check against the pricing page.
+  # Haiku is listed at its under-100K-prompt rate, so a long prompt is slightly underestimated.
+  prices_usd_per_mtok:
+    claude-haiku-5-5: [0.10, 0.50, 0.01, 0.125]
+    claude-sonnet-5-5: [2.00, 10.00, 0.20, 2.50]
+    claude-opus-5-5: [4.00, 20.00, 0.20, 5.00]
+  web_search_usd_per_1000: 10      # the web_search tool is billed per search on top of the tokens
 
 director:                      # brief.py: a summary email per object that is ready for official negotiations
   email: director@example.com  # the real address lives in config.local.yaml

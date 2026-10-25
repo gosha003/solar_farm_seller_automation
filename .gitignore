@@ -21,6 +21,8 @@ __pycache__/
 downloads/
 # listings the browser routine collected: contain seller contacts
 found*.json
+# Claude token log on the VM (llm.log_usage)
+usage.jsonl
 *.log
 .idea/
 solar.tgz
