@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import anthropic
 from bs4 import BeautifulSoup
 
+from solar_outreach import llm
 from solar_outreach.config import load_config
 from solar_outreach.sources import Listing, alo, bazar, kpd
 
@@ -38,6 +39,7 @@ def search_results(client, cfg, prompt: str = PROMPT, tool: str = "web_search_20
             # the API rejects user_location with country=BG (400); Bulgarian queries find .bg sites anyway
             tools=[{"type": tool, "name": "web_search", "max_uses": 10}],
             messages=messages)
+        llm.log_usage(cfg, r, llm.caller())  # the caller tells web / regions / brokers apart
         for block in r.content:
             if block.type == "web_search_tool_result" and isinstance(block.content, list):  # an object = a search error
                 for res in block.content:

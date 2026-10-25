@@ -1,7 +1,8 @@
 import pytest
 
-from solar_outreach import config, sheets
+from solar_outreach import config, llm, sheets
 
+llm.USAGE_LOG = None  # tests never write the VM's token log
 config.LOCAL = None  # tests always run on the public config.yaml, never on the owner's private overrides
 config.load_env = lambda *a, **k: None  # and never with the owner's real .env (tokens, DRY_RUN, SPREADSHEET_ID)
 

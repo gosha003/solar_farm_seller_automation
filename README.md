@@ -225,7 +225,9 @@ speaks Russian. Seller-facing letters are in Bulgarian, English or Russian, chos
 
 `deploy/deploy.sh` packs the committed code with `config.local.yaml` and `.env`, copies them to the VM and runs
 `deploy/setup.sh` (`deploy.sh --code` leaves the VM's `.env` alone; `deploy/status.sh` shows the bot, the timers
-and memory). setup.sh sets up the venv, 2 GB of swap and the systemd units:
+and memory). Every Claude response is logged to `usage.jsonl` (tokens, web searches, calling function); on the VM
+`python -m solar_outreach.usage [days]` prints the spend by day, week and function. setup.sh sets up the venv,
+2 GB of swap and the systemd units:
 
 - `solar-bot`: the engine daemon (memory-capped, restarted on failure, alert after 3 failures in a row; a restart
   waits for the current pass to finish)
