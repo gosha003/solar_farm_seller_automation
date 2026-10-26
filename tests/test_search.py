@@ -57,6 +57,8 @@ def test_alo_ad_dedup_by_number_not_url_form():
     c = search.to_row(Listing("x", "https://www.alo.bg/11333222", "Трето заглавие"), CFG)
     assert search.keys(a) & search.keys(b) and not search.keys(b) & search.keys(c)
     assert search.url_key("https://bazar.bg/obiava-11333221/fec") == "https://bazar.bg/obiava-11333221/fec"
+    for mirror in ("https://en.realestates.bg/11333221", "https://realestates.bg/bg/obiava/fec-11333221?x=1"):
+        assert search.url_key(mirror) == "alo.bg/11333221"  # realestates.bg shows alo.bg ads under the same number
 
 
 def test_titles_dedup_across_scripts():

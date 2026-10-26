@@ -70,7 +70,7 @@ def broker_row(l) -> dict:
 def url_key(url: str) -> str:
     """alo.bg serves one ad under several URLs («/prodavame-fec-9mw-11333221», «/11333221», and realestates.bg links to the
     same numbers): compare them by the ad number."""
-    m = re.match(r"https?://(?:www\.)?alo\.bg/(?:[^/?#]*-)?(\d{6,})(?:[/?#]|$)", url)
+    m = re.match(r"https?://(?:(?:www\.)?alo|(?:[a-z]+\.)?realestates)\.bg/(?:[^?#]*[/-])?(\d{6,})(?:[/?#]|$)", url)
     return f"alo.bg/{m.group(1)}" if m else url
 
 
