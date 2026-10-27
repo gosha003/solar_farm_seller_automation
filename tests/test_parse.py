@@ -127,6 +127,7 @@ def test_year_regime_contacts():
     ("Земя подходяща за соларен парк 2 MW", False),
     ("Работещ проект за ФЕЦ 1 MW", False),
     ("Продавам работещи фотоволтаични панели 5 бр", False),
+    ("Фотоволтаик Система 300W 220V Соларен Генератор Слънчевa Централа Преносима Електроцентрала", False),
 ])
 def test_is_station_sale(title, ok):
     assert is_station_sale(title) is ok
