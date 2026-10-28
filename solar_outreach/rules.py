@@ -34,20 +34,32 @@ CHECKS = [
     ("ссылка", re.compile(r"https?://|www\.|(?<![@\w.-])[\w-]+\.(bg|com|net|org|eu|ru|me|info)\b", re.I)),
 ]
 PHONE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
+CADASTRAL = re.compile(r"\d{5}\.\d{1,4}\.\d{1,4}(\.\d{1,4})*")  # землище.масив.имот: 44238.180.8
+DOC_NO = re.compile(r"(№|\bNo\.?|\bNr\.?|ДПЕРМ|\bУ?ПИ|идентификатор|договор\w*|заповед\w*|протокол\w*|скица)\s*[№:.]?\s*$",
+                    re.I)
 
 
 def digits(phone: str) -> str:
     return re.sub(r"\D", "", phone)
 
 
+def phones(text: str) -> list[str]:
+    """Digits of every 9+ digit number that may be a phone (dates like "08.10.2026" are shorter). One starting with
+    +, 0 or 359 always is; any other is too (a foreign number written without +), unless it is a cadastral id or
+    follows a document word: «договор ДПЕРМ 1205298696», «№ 1205298696»."""
+    out = []
+    for m in PHONE.finditer(text):
+        p, d = m.group(), digits(m.group())
+        if len(d) >= 9 and (p[0] in "+0" or d.startswith("359") or not (
+                CADASTRAL.fullmatch(p) or DOC_NO.search(text[max(0, m.start() - 30):m.start()]))):
+            out.append(d)
+    return out
+
+
 def violations(text: str, signature: str) -> list[str]:
     out = [name for name, rx in CHECKS if rx.search(text)]
     allowed = {digits(p) for p in PHONE.findall(signature)}
-    # a phone starts with + or 0, or with the country code 359: contract numbers (ДПЕРМ 1205298696) and cadastral ids
-    # (44238.180.8) are long digit runs too, dates like "08.10.2026" are too short.
-    # ponytail: a foreign number written without + slips through; sellers' numbers are Bulgarian (0..., +359, 359...)
-    phones = [d for p in PHONE.findall(text) if len(d := digits(p)) >= 9 and (p[0] in "+0" or d.startswith("359"))]
-    if any(d not in allowed for d in phones):
+    if any(d not in allowed for d in phones(text)):
         out.append("чужой номер телефона")  # sellers only ever get the owner's number from the signature
     if signature.strip() not in text:
         out.append("нет подписи")
