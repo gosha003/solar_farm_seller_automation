@@ -43,7 +43,10 @@ def digits(phone: str) -> str:
 def violations(text: str, signature: str) -> list[str]:
     out = [name for name, rx in CHECKS if rx.search(text)]
     allowed = {digits(p) for p in PHONE.findall(signature)}
-    phones = [d for d in map(digits, PHONE.findall(text)) if len(d) >= 9]  # dates like "08.10.2026" are not phones
+    # a phone starts with + or 0, or with the country code 359: contract numbers (ДПЕРМ 1205298696) and cadastral ids
+    # (44238.180.8) are long digit runs too, dates like "08.10.2026" are too short.
+    # ponytail: a foreign number written without + slips through; sellers' numbers are Bulgarian (0..., +359, 359...)
+    phones = [d for p in PHONE.findall(text) if len(d := digits(p)) >= 9 and (p[0] in "+0" or d.startswith("359"))]
     if any(d not in allowed for d in phones):
         out.append("чужой номер телефона")  # sellers only ever get the owner's number from the signature
     if signature.strip() not in text:
