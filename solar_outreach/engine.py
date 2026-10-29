@@ -66,6 +66,10 @@ def run(test_n: int = 0, with_inbox: bool = True, mail: bool | None = None) -> i
                 print(f"директор: {type(e).__name__}: {str(e)[:200]}", flush=True)
                 if failure(f"директор: {type(e).__name__}: {str(e)[:200]}") < ALERT_AFTER:
                     return approval.main(test_n, full=False)
+            try:  # a safety net: never holds up the mail check; unreported letters are reported next check
+                inbox.strangers(api, sid, gmail_client.service())
+            except Exception as e:
+                print(f"незнакомые: {type(e).__name__}: {str(e)[:200]}", flush=True)
             sheets.set_kv(api, sid, "_state", {MAIL_KEY: now.isoformat(timespec="minutes")})
             if asked:  # the owner's /mail: the flag goes, and he hears back even when nothing came
                 sheets.set_kv(api, sid, "Настройки", {owner.MAIL_NOW: "нет"})

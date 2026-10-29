@@ -136,6 +136,17 @@ def test_a_broker_written_to_through_its_site_form_is_found_by_the_sites_domain(
     assert sheet.tabs["Диалоги"][-1]["id станции"] == "S002" and sheet.tabs["Станции"][1]["статус переписки"] == "эскалация"
 
 
+def test_an_on_topic_letter_from_an_unknown_address_is_reported_once(box, monkeypatch):
+    sheet, msgs, done, tg, answers = box
+    letters = [mail("x1", "", frm="Ivan <ivan@unknown.example>", subject="Re: фотоволатични централи"),
+               mail("x2", "", frm="noreply@shop.example", subject="Солар лампи -50%"),
+               mail("x3", "", frm="friend@example.com", subject="Ужин в пятницу")]
+    monkeypatch.setattr(inbox.gmail, "strangers", lambda svc: letters)
+    assert inbox.strangers(None, None, None) == 1 and "ivan@unknown.example" in tg[0]
+    assert inbox.strangers(None, None, None) == 0 and len(tg) == 1   # told once, not every check
+    assert sheet.kv("_state")[inbox.STRANGERS_KEY] == "x1"
+
+
 def test_two_messages_in_one_pass_make_one_reply(box):
     sheet, msgs, done, tg, answers = box
     msgs += [mail("m1", "Работи от 2020."), mail("m2", "Забравих: панели Longi.")]

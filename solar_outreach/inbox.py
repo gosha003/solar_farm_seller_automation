@@ -7,6 +7,7 @@ Actions:
   auto_reply -> nothing; broker_redirect -> the new contact becomes a new seller; bounce -> blacklist + counter
 A message to a paused dialog (escalation, refusal, skipped) is recorded and shown to the owner; the pause stays.
 """
+import html
 import re
 from datetime import date
 from email.utils import parseaddr
@@ -102,6 +103,34 @@ def _file(f: str) -> str:
 
 def _from(frm: str, thread_id: str) -> str:
     return f"<b>От:</b> {esc(frm)} · {link(thread_url(thread_id), 'тред в Gmail')}"
+
+
+# A letter from an address «Станции» doesn't know that still reads like a seller or broker: Bulgarian, about solar
+# plants or land, or answering our inquiry. Automated senders and alo.bg (inbox reads its notices) are left out.
+TOPIC = re.compile(r"здравейте|фотовол|\bфв?ец\b|централ|солар|photovolt|solar (park|plant|farm|power|station|pv)|\bpv\b"
+                   r"|\b[km]wp\b|\d ?[km]w\b|\d ?[км]вт\b|парцел|\bдка\b|запитване|обява|татаров", re.I)
+AUTOMATED = re.compile(r"^(no-?reply|do-?not-?reply|notifications?|mailer-daemon|postmaster)[\w.+-]*@|@([\w-]+\.)*alo\.bg$"
+                       r"|@healthchecks\.io$")  # our own uptime monitor: its project is called «Solar Farm Search»
+STRANGERS_KEY = "почта: незнакомые"  # «_state»: ids of the letters the owner has been told about (last 7 days)
+
+
+def strangers(api, sid, svc) -> int:
+    """A seller reached on WhatsApp or through a site's form may write to the owner's mailbox from an address
+    «Станции» doesn't know: such on-topic letters are only reported to the owner, once each, and never read into the
+    pipeline. Returns how many were new."""
+    told = set(sheets.kv(api, sid, "_state").get(STRANGERS_KEY, {}).get("значение", "").split())
+    found = [m for m in gmail.strangers(svc) if not AUTOMATED.search(parseaddr(gmail.header(m, "From"))[1].lower())
+             and TOPIC.search(f"{gmail.header(m, 'Subject')} {html.unescape(m.get('snippet', ''))}")]
+    new = [m for m in found if m["id"] not in told]
+    if new:
+        notify.urgent(join(head("📧", "Письмо от незнакомого адреса"), *[join(
+            ("<b>В СПАМЕ</b>\n" if "SPAM" in m.get("labelIds", []) else "") + _from(gmail.header(m, "From"), m["threadId"]),
+            f"<b>Тема:</b> {esc(gmail.header(m, 'Subject'))}", quote(html.unescape(m.get("snippet", "")))) for m in new],
+            "Адреса нет в «Станциях», бот письмо не читает. Если это продавец, впиши адрес в колонку email его станции: "
+            "письмо прочитается на следующей проверке почты."))
+    if {m["id"] for m in found} != told:  # ids that left the 7-day window drop out
+        sheets.set_kv(api, sid, "_state", {STRANGERS_KEY: " ".join(m["id"] for m in found)})
+    return len(new)
 
 
 def decide(category: str, confidence: str, body: str) -> str:
