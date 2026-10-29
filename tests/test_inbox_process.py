@@ -123,6 +123,19 @@ def test_delay_dsn_is_not_a_bounce_and_a_bounce_blacklists_only_the_failed_addre
     assert sheet.kv("_state")[f"bounce {inbox.date.today().isoformat()}"] == "1"
 
 
+def test_a_broker_written_to_through_its_site_form_is_found_by_the_sites_domain(box, monkeypatch):
+    sheet, msgs, done, tg, answers = box
+    sheet.add("Станции", {**STATION, "id": "S002", "площадка": "broker: www.broker.example", "email": "",
+                          "ссылка": "https://www.broker.example", "канал": "сайт (ручная)"})
+    adopted = []
+    monkeypatch.setattr(inbox.gmail, "adopt", lambda svc, emails: adopted.extend(emails) or 0)
+    msgs.append(mail("m1", "Имаме централи над 5 MW.", frm="ivan@broker.example", thread="t9"))
+    answers["Имаме централи над 5 MW."] = classified("price_discussion")
+    inbox.process(None, None, None)
+    assert "broker.example" in inbox.gmail.contact_query(adopted, "owner@example.com").split(" OR ")
+    assert sheet.tabs["Диалоги"][-1]["id станции"] == "S002" and sheet.tabs["Станции"][1]["статус переписки"] == "эскалация"
+
+
 def test_two_messages_in_one_pass_make_one_reply(box):
     sheet, msgs, done, tg, answers = box
     msgs += [mail("m1", "Работи от 2020."), mail("m2", "Забравих: панели Longi.")]
