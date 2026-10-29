@@ -198,6 +198,10 @@ def process(api, sid, svc, auto: bool = False) -> dict:
     answered = {i for d in draft_rows for i in d.get("in-reply-to", "").split()}
     by_thread = {d["тред Gmail"]: d["id станции"] for d in dialogs if d["тред Gmail"]}
     by_email = {e.strip().lower(): s["id"] for s in stations.values() for e in s["email"].split(",") if e.strip()}
+    for s in stations.values():  # a broker written to through its site's form has no email: it answers from the site's domain
+        host = s.get("площадка", "").partition("broker:")[2].strip().removeprefix("www.").lower()
+        if host and not gmail.is_public(host):
+            by_email.setdefault("@" + host, s["id"])  # never equals a From: it only feeds by_domain and adopt's domain query
     by_domain: dict[str, set] = {}  # a colleague answers from the agency's domain in a new thread (contact@ -> ivan@)
     for e, s_id in by_email.items():
         if not gmail.is_public(e.split("@")[-1]):

@@ -1,6 +1,7 @@
 """Gmail. Safety boundary:
 - read and modify ONLY threads labelled SolarBG (checked in _thread, which every read goes through);
-- the SolarBG label is added only to mail from addresses in «Станции» (adopt: decided by From in a Gmail search, the body is not read);
+- the SolarBG label is added only to mail from addresses in «Станции» or a listed broker's own site domain (adopt:
+  decided by From in a Gmail search, the body is not read);
 - no delete/trash: this module has neither;
 - with DRY_RUN nothing goes to sellers; mail to the owner (alerts, end-to-end test) is allowed;
 - internal letters (briefs to the director, send_files) carry their own label (SolarBG/директор), never SolarBG, so
