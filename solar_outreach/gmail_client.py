@@ -2,6 +2,8 @@
 - read and modify ONLY threads labelled SolarBG (checked in _thread, which every read goes through);
 - the SolarBG label is added only to mail from addresses in «Станции» or a listed broker's own site domain (adopt:
   decided by From in a Gmail search, the body is not read);
+- other recent mail is seen only as From, Subject and Gmail's snippet (strangers), to tell the owner about a seller
+  writing from an unknown address; it is never labelled, answered or opened;
 - no delete/trash: this module has neither;
 - with DRY_RUN nothing goes to sellers; mail to the owner (alerts, end-to-end test) is allowed;
 - internal letters (briefs to the director, send_files) carry their own label (SolarBG/директор), never SolarBG, so
@@ -239,6 +241,22 @@ def adopt(svc, emails: list[str]) -> int:
     for i in ids:
         svc.messages().modify(userId="me", id=i, body={"addLabelIds": [label]}).execute()
     return len(ids)
+
+
+def strangers(svc, days: int = 7) -> list[dict]:
+    """Letters of the last `days` outside our threads, Spam included, not from us: headers and snippet only. Run after
+    inbox has marked every letter in our threads (they then carry the SolarBG label and drop out of the search)."""
+    cfg = load_config()
+    q = (f'newer_than:{days}d in:anywhere -in:trash -in:chats -from:me -label:"{cfg["gmail"]["label"]}" '
+         "-category:promotions -category:social")
+    out, page = [], None
+    while True:
+        resp = svc.messages().list(userId="me", q=q, pageToken=page, maxResults=100).execute()
+        out += [svc.messages().get(userId="me", id=m["id"], format="metadata", metadataHeaders=["From", "Subject"]).execute(
+            num_retries=3) for m in resp.get("messages", [])]
+        page = resp.get("nextPageToken")
+        if not page:
+            return [m for m in out if parseaddr(header(m, "From"))[1].lower() not in _us(cfg)]
 
 
 def _us(cfg: dict) -> set[str]:
