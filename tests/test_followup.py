@@ -50,6 +50,19 @@ def test_late_first_followup_is_not_chased_by_the_second_at_once():
     assert due([FIRST, up1], "2026-10-15")[0]["тип"] == "дожим 2"
 
 
+def test_a_message_sent_by_hand_without_a_draft_is_not_chased_at_once():
+    by_hand = {"id станции": "S001", "направление": "out", "дата": "2026-10-10", "канал": "сайт (ручная) (вручную)",
+               "краткое содержание": "сообщение из «Ручной очереди»"}
+    up1 = {**FIRST, "id": "D002", "тип": "дожим 1", "отправлено": "2026-10-05"}
+    assert due([FIRST, up1], "2026-10-10") != []                       # without it, follow-up 2 is due that very day
+    assert due([FIRST, up1], "2026-10-14", [by_hand]) == []
+    assert due([FIRST, up1], "2026-10-15", [by_hand])[0]["тип"] == "дожим 2"
+    early = {**by_hand, "дата": "2026-10-03"}
+    assert due([FIRST], "2026-10-06", [early]) == []                   # before follow-up 1 too: 4 days from it
+    assert len(due([FIRST], "2026-10-07", [early])) == 1
+    assert len(due([FIRST], "2026-10-05", [{**early, "дата": "2026-09-30"}])) == 1   # older than the letter: ignored
+
+
 def test_auto_reply_postpones_followups_but_the_letter_keeps_our_date():
     away = {"id станции": "S001", "направление": "in", "дата": "2026-10-03", "краткое содержание": "[auto_reply] отпуск"}
     assert due([FIRST], "2026-10-05", [away]) == []

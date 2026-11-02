@@ -31,10 +31,10 @@ def last_reply(dialogs: list[dict]) -> dict[str, str]:
     return out
 
 
-def auto_replies(dialogs: list[dict], sid: str) -> list[date]:
+def dialog_dates(dialogs: list[dict], sid: str, keep) -> list[date]:
     out = []
     for r in dialogs:
-        if r["id станции"] == sid and r["направление"] == "in" and r["краткое содержание"].startswith("[auto_reply]"):
+        if r["id станции"] == sid and keep(r):
             try:
                 out.append(date.fromisoformat(r.get("дата", "")))
             except ValueError:
@@ -65,9 +65,14 @@ def due(stations: dict, by_id: dict, dialogs: list[dict], days: list[int], today
             continue
         ups = [u for u in ups if sent_on(u) >= start]  # this letter's follow-ups
         k = len(ups)
-        anchor = max([start, *auto_replies(dialogs, sid)])  # out of office: count the days from the auto-reply
-        prev = max([sent_on(u) for u in ups], default=start)  # a late follow-up 1 must not be chased by follow-up 2 at once
-        if (today - anchor).days < days[k] or ups and (today - prev).days < days[k] - days[k - 1]:
+        auto = dialog_dates(dialogs, sid, lambda r: r["направление"] == "in"
+                            and r["краткое содержание"].startswith("[auto_reply]"))
+        anchor = max([start, *auto])  # out of office: count the days from the auto-reply
+        # our latest message is not chased at once: a late follow-up 1, or one sent by hand without a draft
+        # (from «Ручная очередь» or `site_queue log`), which only «Диалоги» knows about
+        mine_out = [d for d in dialog_dates(dialogs, sid, lambda r: r["направление"] == "out") if d >= start]
+        prev = max([start, *(sent_on(u) for u in ups), *mine_out])
+        if (today - anchor).days < days[k] or (today - prev).days < days[k] - (days[k - 1] if k else 0):
             continue
         lang = letter["язык"]
         body = drafts.followup(lang, start.strftime("%d.%m.%Y"), drafts.is_general(st), reply=sid in answered)
