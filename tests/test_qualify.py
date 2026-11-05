@@ -15,7 +15,8 @@ def test_alo_15mw_is_top_candidate():
 
 def test_size_and_price_bands():
     assert q(60, 54_300)["verdict"] == "мелкая"
-    assert q(950, None)["verdict"] == "мелкая"      # no soft bounds: strictly min_kwp..max_kwp
+    assert q(949, None)["verdict"] == "мелкая"      # no soft bounds: strictly min_kwp..max_kwp
+    assert q(999, None)["verdict"] == q(950, None)["verdict"] == "кандидат"   # 950-999 kW is "1 MW"
     assert q(3100, None)["verdict"] == "крупная"
     assert q(1000, None)["verdict"] == q(2500, None)["verdict"] == q(3000, None)["verdict"] == "кандидат"
     assert q(5000, None)["verdict"] == "крупная"
