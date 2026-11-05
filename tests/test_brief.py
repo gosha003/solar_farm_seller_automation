@@ -101,7 +101,7 @@ def test_invoices_drafts_and_capacity():
     invoice = doc(documents.INVOICE, "Фактура")
     [(text, _)] = problems([PERMIT, GRID, invoice, RIGHT])
     assert "есть только счета" in text
-    small = [{**PERMIT, "kwp": 990.0}, GRID, PAID, RIGHT]
+    small = [{**PERMIT, "kwp": 900.0}, GRID, PAID, RIGHT]
     assert "вне критериев" in problems(small)[0][0] and problems(small)[0][1] == ""
     assert problems(small, {**ST, "отбор": "проект (исключение владельца)"}) == []
     two = [PERMIT, {**PERMIT, "number": "8", "title": "Разрешение №8"}, GRID, PAID, RIGHT]   # parts add up

@@ -17,7 +17,7 @@ owner:                         # letters may state only these facts about the bu
     - "Contact: email and WhatsApp/Viber on the phone above."
 
 criteria:                      # which listings qualify
-  min_kwp: 1000
+  min_kwp: 950                 # owner 2026-11-05: 950-999 kW plants count as "1 MW"
   max_kwp: 3000
   price_per_kwp_eur:
     preferred: [800, 900]
