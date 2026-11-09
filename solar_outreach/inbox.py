@@ -13,7 +13,7 @@ from datetime import date
 from email.utils import parseaddr
 
 from solar_outreach import drafts, drive, gmail_client as gmail, llm, notify, parse, rules, sheets
-from solar_outreach.config import dry_run
+from solar_outreach.config import dry_run, load_config
 from solar_outreach.contacts import channel
 from solar_outreach.notify import esc, head, join, link, quote, section
 
@@ -106,7 +106,8 @@ def _from(frm: str, thread_id: str) -> str:
 
 
 # A letter from an address «Станции» doesn't know that still reads like a seller or broker: Bulgarian, about solar
-# plants or land, or answering our inquiry. Automated senders and alo.bg (inbox reads its notices) are left out.
+# plants or land, answering our inquiry, or naming the owner (strangers adds his surname from the config).
+# Automated senders and alo.bg (inbox reads its notices) are left out.
 TOPIC = re.compile(r"здравейте|фотовол|\bфв?ец\b|централ|солар|photovolt|solar (park|plant|farm|power|station|pv)|\bpv\b"
                    r"|\b[km]wp\b|\d ?[km]w\b|\d ?[км]вт\b|парцел|\bдка\b|запитване|обява", re.I)
 AUTOMATED = re.compile(r"^(no-?reply|do-?not-?reply|notifications?|mailer-daemon|postmaster)[\w.+-]*@|@([\w-]+\.)*alo\.bg$"
@@ -119,8 +120,10 @@ def strangers(api, sid, svc) -> int:
     «Станции» doesn't know: such on-topic letters are only reported to the owner, once each, and never read into the
     pipeline. Returns how many were new."""
     told = set(sheets.kv(api, sid, "_state").get(STRANGERS_KEY, {}).get("значение", "").split())
+    names = [re.escape(n.split()[-1]) for n in load_config()["owner"]["name"].values()]  # surname, every language
+    about = re.compile("|".join([TOPIC.pattern, *names]), re.I)
     found = [m for m in gmail.strangers(svc) if not AUTOMATED.search(parseaddr(gmail.header(m, "From"))[1].lower())
-             and TOPIC.search(f"{gmail.header(m, 'Subject')} {html.unescape(m.get('snippet', ''))}")]
+             and about.search(f"{gmail.header(m, 'Subject')} {html.unescape(m.get('snippet', ''))}")]
     new = [m for m in found if m["id"] not in told]
     if new:
         notify.urgent(join(head("📧", "Письмо от незнакомого адреса"), *[join(

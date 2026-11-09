@@ -2,7 +2,6 @@
 # On the VM (Debian 12): unpack code, venv, systemd units. Running it again = update.
 set -e
 DIR="$HOME/solar"
-sudo timedatectl set-timezone Europe/Sofia      # sheet dates and the digest follow the owner's time zone
 python3 -c "import ensurepip" 2>/dev/null || { sudo apt-get update -qq; sudo apt-get install -y -qq python3-venv; }
 if [ ! -f /swapfile ]; then   # 1 GB RAM is too little for bot + search at once: 2 GB swap on the free disk
   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap -q /swapfile && sudo swapon /swapfile
@@ -15,6 +14,8 @@ tar -xzf "$HOME/solar.tgz" -C "$DIR" && rm "$HOME/solar.tgz"
 chmod 600 "$DIR/.env"
 [ -x "$DIR/.venv/bin/pip" ] || { rm -rf "$DIR/.venv"; python3 -m venv "$DIR/.venv"; }
 "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
+TZ_NAME=$(cd "$DIR" && .venv/bin/python -c "from solar_outreach.config import load_config; print(load_config()['owner']['timezone'])")
+sudo timedatectl set-timezone "$TZ_NAME"   # sheet dates, timers and the digest follow owner.timezone
 for f in "$DIR"/deploy/*.service "$DIR"/deploy/*.timer; do
   sed "s#__USER__#$USER#g; s#__DIR__#$DIR#g" "$f" | sudo tee "/etc/systemd/system/$(basename "$f")" >/dev/null
 done

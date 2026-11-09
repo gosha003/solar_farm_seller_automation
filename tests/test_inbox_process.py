@@ -140,11 +140,12 @@ def test_an_on_topic_letter_from_an_unknown_address_is_reported_once(box, monkey
     sheet, msgs, done, tg, answers = box
     letters = [mail("x1", "", frm="Ivan <ivan@unknown.example>", subject="Re: фотоволтаични централи"),
                mail("x2", "", frm="noreply@shop.example", subject="Солар лампи -50%"),
-               mail("x3", "", frm="friend@example.com", subject="Ужин в пятницу")]
+               mail("x3", "", frm="friend@example.com", subject="Ужин в пятницу"),
+               mail("x4", "", frm="pavel@new.example", subject="За г-н Петров")]  # only the owner's surname (config)
     monkeypatch.setattr(inbox.gmail, "strangers", lambda svc: letters)
-    assert inbox.strangers(None, None, None) == 1 and "ivan@unknown.example" in tg[0]
+    assert inbox.strangers(None, None, None) == 2 and "ivan@unknown.example" in tg[0] and "pavel@new.example" in tg[0]
     assert inbox.strangers(None, None, None) == 0 and len(tg) == 1   # told once, not every check
-    assert sheet.kv("_state")[inbox.STRANGERS_KEY] == "x1"
+    assert sheet.kv("_state")[inbox.STRANGERS_KEY] == "x1 x4"
 
 
 def test_two_messages_in_one_pass_make_one_reply(box):
