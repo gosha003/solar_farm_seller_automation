@@ -19,6 +19,8 @@ __pycache__/
 
 # working files
 downloads/
+# sellers' documents (station folders)
+documents/
 # listings the browser routine collected: contain seller contacts
 found*.json
 # Claude token log on the VM (llm.log_usage)
