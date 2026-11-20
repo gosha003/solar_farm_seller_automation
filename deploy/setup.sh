@@ -20,7 +20,10 @@ for f in "$DIR"/deploy/*.service "$DIR"/deploy/*.timer; do
   sed "s#__USER__#$USER#g; s#__DIR__#$DIR#g" "$f" | sudo tee "/etc/systemd/system/$(basename "$f")" >/dev/null
 done
 sudo systemctl daemon-reload
-sudo systemctl enable -q solar-bot solar-search-sites.timer solar-search-web.timer solar-search-brokers.timer solar-search-regions.timer solar-brief.timer
+sudo systemctl enable -q solar-bot solar-search-sites.timer solar-search-brokers.timer solar-brief.timer
+# Paid Claude web search (--web daily, --regions weekly) cost ~90% of the API spend and found nothing that fit:
+# off since 2026-11-20. The units stay installed; run by hand with `search --web` / `search --regions`.
+sudo systemctl disable -q --now solar-search-web.timer solar-search-regions.timer
 sudo systemctl restart solar-bot
-sudo systemctl start solar-search-sites.timer solar-search-web.timer solar-search-brokers.timer solar-search-regions.timer solar-brief.timer
+sudo systemctl start solar-search-sites.timer solar-search-brokers.timer solar-brief.timer
 systemctl --no-pager --lines=5 status solar-bot

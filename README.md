@@ -231,8 +231,9 @@ and memory). Every Claude response is logged to `usage.jsonl` (tokens, web searc
 
 - `solar-bot`: the engine daemon (memory-capped, restarted on failure, alert after 3 failures in a row; a restart
   waits for the current pass to finish)
-- `solar-search-sites.timer` (3× a day), `solar-search-web.timer` (daily, with Claude web search),
-  `solar-search-regions.timer` and `solar-search-brokers.timer` (weekly); search runs never overlap
+- `solar-search-sites.timer` (3× a day) and `solar-search-brokers.timer` (weekly); search runs never overlap.
+  `solar-search-web.timer` and `solar-search-regions.timer` (Claude web search) are installed but off: they cost ~90%
+  of the API spend and found nothing that fit, so `search --web` / `search --regions` run only by hand
 - `solar-brief.timer` (12:55 and 22:55): reads new seller documents, checks the gate, briefs, forwards documents the director
   asked for
 

@@ -2,10 +2,10 @@
 
     python -m solar_outreach.search            # writes to the Google Sheet (creates it on first run)
     python -m solar_outreach.search --local    # print only, no Sheets
-    python -m solar_outreach.search --web      # plus web search via Claude (paid, once a day)
+    python -m solar_outreach.search --web      # plus web search via Claude (paid, by hand only: timer off)
     python -m solar_outreach.search --only pc        # imot.bg + olx.bg: they return 403 to the VM, so they run on the owner's PC
                                                      # (or --only imot.bg / --only olx.bg separately)
-    python -m solar_outreach.search --regions  # web search per province: Montana, Vidin, Dobrich, Shumen, Yambol, Haskovo, Kardzhali (paid)
+    python -m solar_outreach.search --regions  # web search per province: Montana, Vidin, Dobrich, Shumen, Yambol, Haskovo, Kardzhali (paid, by hand only)
     python -m solar_outreach.search --brokers  # broker search only (paid, weekly), rows `broker:<site>`
     python -m solar_outreach.search --import found.json  # listings the PC routine collected in the owner's browser
 """

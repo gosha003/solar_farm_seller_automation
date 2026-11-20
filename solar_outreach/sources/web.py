@@ -1,5 +1,5 @@
 """Web search via Claude (server tool web_search): finds 1-3 MW PV listings on any site.
-Claude only searches; our Fetcher opens the pages (robots.txt, pauses). Once a day: python -m solar_outreach.search --web
+Claude only searches; our Fetcher opens the pages (robots.txt, pauses). By hand only (paid): python -m solar_outreach.search --web
 """
 import re
 from urllib.parse import urlparse

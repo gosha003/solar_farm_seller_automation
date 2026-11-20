@@ -160,7 +160,8 @@ def digest(c: Ctx, today: date) -> str:
 
 
 LISTING_SITES = ("bazar.bg", "alo.bg", "kpd.bg", "imot.bg", "olx.bg")  # 0 links there = the site changed its markup
-STALE_DAYS = {"брокеры": 8, "регионы": 8}  # weekly runs; every other search runs at least daily
+# weekly runs; None = run only by hand (paid web searches, timers off); every other search runs at least daily
+STALE_DAYS = {"брокеры": 8, "регионы": None, "web": None}
 
 
 def search_health(state: dict, now: datetime) -> list[str]:
@@ -179,7 +180,7 @@ def search_health(state: dict, now: datetime) -> list[str]:
             out.append(f"{esc(name)}: {esc(v[17:])}")
         elif name in LISTING_SITES and "ссылок 0," in v:
             out.append(f"{esc(name)}: 0 ссылок, похоже, сайт поменял вёрстку")
-        if age >= STALE_DAYS.get(name, 2):
+        if (limit := STALE_DAYS.get(name, 2)) and age >= limit:
             out.append(f"{esc(name)}: не запускался {age} дн.")
     return out
 

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from pathlib import Path
 
 from solar_outreach import owner, sheets
 from solar_outreach.notify import plain
@@ -113,6 +114,16 @@ def test_digest_flags_dead_sources_and_stuck_items(monkeypatch):
     assert any(h.startswith("браузер: ") and "JSONDecodeError" in h for h in health)
     assert not any(h.startswith("bazar.bg") for h in health)
     assert "⏳ Не прочитан ответ на alo.bg: S019 (3 дн.)" in lines and "⏳ Черновики без решения: D002 (4 дн.)" in lines
+
+
+def test_paid_web_searches_are_off_and_not_reported_stale():
+    state = {"поиск web": "2026-10-01 07:23 ссылок 0, новых 0", "поиск регионы": "2026-10-01 06:45 ссылок 2, новых 0",
+             "поиск брокеры": "2026-10-01 06:41 ссылок 4, новых 1"}
+    assert owner.search_health(state, datetime(2026, 10, 20, 8, 0)) == ["брокеры: не запускался 19 дн."]
+    setup = (Path(__file__).parent.parent / "deploy" / "setup.sh").read_text(encoding="utf-8")
+    on = [ln for ln in setup.splitlines() if ln.startswith(("sudo systemctl enable", "sudo systemctl start"))]
+    assert on and not any("search-web" in ln or "search-regions" in ln for ln in on)
+    assert "disable -q --now solar-search-web.timer solar-search-regions.timer" in setup
 
 
 def test_note_keeps_a_drive_link_for_the_documents_pass(monkeypatch):
